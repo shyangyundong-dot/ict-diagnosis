@@ -250,6 +250,22 @@ function normalizeFieldsFromServer(f) {
 
 const getFieldLabel = (key) => fieldDefinitions.value[key]?.label || FIELD_LABELS[key] || key
 
+function formatApiError(e) {
+  const d = e?.response?.data
+  if (d == null) {
+    if (e?.code === 'ECONNABORTED' || e?.message?.includes?.('timeout')) return '请求超时，请稍后重试'
+    if (e?.message?.includes?.('Network Error')) return '无法连接后端（请确认本机已启动 API 服务，且 Vite 代理指向正确端口）'
+    return e?.message || '未知错误'
+  }
+  if (typeof d.detail === 'string') return d.detail
+  if (Array.isArray(d.detail)) {
+    return d.detail
+      .map((x) => (typeof x === 'string' ? x : x?.msg || JSON.stringify(x)))
+      .join('；')
+  }
+  return typeof d === 'object' ? JSON.stringify(d) : String(d)
+}
+
 async function commitFieldPatch(partial) {
   Object.assign(currentFields.value, partial)
   if (!sessionId.value) return
@@ -257,8 +273,8 @@ async function commitFieldPatch(partial) {
     const res = await patchSessionFields(sessionId.value, partial)
     currentFields.value = normalizeFieldsFromServer(res.data.extracted_fields)
     missingFields.value = res.data.missing_fields || []
-  } catch {
-    alert('保存失败，请重试')
+  } catch (e) {
+    alert(`保存失败：${formatApiError(e)}`)
   }
 }
 
@@ -348,7 +364,7 @@ async function submitDiagnosis() {
     diagnosisId.value = res.data.diagnosis_id
     window.open(`/report/${diagnosisId.value}`, '_blank')
   } catch (e) {
-    alert('提交失败，请重试')
+    alert(`提交失败：${formatApiError(e)}`)
   } finally {
     submitting.value = false
   }

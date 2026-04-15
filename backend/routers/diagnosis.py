@@ -17,6 +17,7 @@ from ai_chat import (
     build_fields_display,
 )
 from report_generator import generate_report_html, generate_pdf
+from ai_report import enrich_diagnosis_with_ai
 
 router = APIRouter(prefix="/api")
 
@@ -170,6 +171,22 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
 
     result = run_diagnosis(pt_for_rules, fields)
 
+    # 获取对话历史用于AI个性化分析
+    chat_history = None
+    if session:
+        try:
+            chat_history = json.loads(session.messages_json)
+        except Exception:
+            chat_history = None
+
+    # B方案：用AI针对具体项目生成个性化分析（含A方案的板块分节）
+    try:
+        result = await enrich_diagnosis_with_ai(result, fields, chat_history)
+    except Exception as e:
+        # AI丰富化失败不影响主流程，降级为原始规则输出
+        result["ai_enriched"] = False
+        result["ai_error"] = str(e)
+
     # 保存诊断记录
     record = DiagnosisRecord(
         bpm_id=bpm_id,
@@ -214,6 +231,10 @@ async def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)):
         "audit_checklist": result.get("audit_checklist", []),
         "rule_version": record.rule_version,
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
+        # 以下字段存于 result_json，供前端 /report/:id 与下载 HTML 一致（分板块、AI 标识）
+        "segments": result.get("segments"),
+        "ai_enriched": result.get("ai_enriched", False),
+        "is_mixed_project": result.get("is_mixed_project", False),
     }
 
 

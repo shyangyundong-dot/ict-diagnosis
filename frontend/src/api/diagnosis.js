@@ -13,8 +13,11 @@ export const patchSessionFields = (sessionId, fields) =>
 
 export const fetchFieldDefinitions = () => api.get('/field-definitions')
 
+// 提交诊断会并发调用 DeepSeek 丰富化报告；reasoner 等模型可能需数分钟，单独放宽超时
+const CONFIRM_TIMEOUT_MS = 600000
+
 export const confirmDiagnosis = (sessionId, fields) =>
-  api.post('/confirm', { session_id: sessionId, fields })
+  api.post('/confirm', { session_id: sessionId, fields }, { timeout: CONFIRM_TIMEOUT_MS })
 
 export const getDiagnosis = (id) =>
   api.get(`/diagnose/${id}`)
