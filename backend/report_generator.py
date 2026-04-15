@@ -285,16 +285,27 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
 <title>ICT项目合规诊断报告 — {bpm_id}</title>
 <style>
   /* 与产品稿对齐：主字色 #333、次级 #4b5563、条款链接 #315efb、引用底 #f4f7fb */
+  /* PDF：A4 分页 + 版心（与网页 max-width 880px 视觉接近，但按纸张宽度自适应，避免整页被缩成窄条） */
+  @page {{
+    size: A4;
+    margin: 12mm 14mm;
+  }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html {{ background: #fff; }}
   body {{
     font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background: #f5f7fa;
+    background: #fff;
     color: #333333;
     font-size: 14px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }}
-  .page {{ max-width: 880px; margin: 0 auto; padding: 32px 16px 80px; }}
+  .page {{
+    max-width: 100%;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 0 24px;
+  }}
 
   /* 报告头部 */
   .report-header {{
@@ -303,6 +314,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     padding: 28px 32px;
     color: #fff;
     margin-bottom: 20px;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }}
   .report-header .logo {{ font-size: 13px; opacity: 0.75; margin-bottom: 8px; }}
   .report-header h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 4px; }}
@@ -315,6 +328,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     border-radius: 14px;
     padding: 24px 28px;
     margin-bottom: 24px;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }}
   .overall-left {{
     display: flex;
@@ -346,6 +361,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     display: flex;
     align-items: center;
     gap: 8px;
+    page-break-after: avoid;
+    break-after: avoid;
   }}
   .heading-sub {{ font-size: 12px; font-weight: 400; color: #94a3b8; }}
   .heading-ai-tag {{
@@ -390,6 +407,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     padding: 16px 24px;
     background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
     color: #fff;
+    page-break-after: avoid;
+    break-after: avoid;
   }}
   .segment-icon {{ font-size: 20px; }}
   .segment-title {{
@@ -470,6 +489,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+    page-break-after: avoid;
+    break-after: avoid;
   }}
   .rule-badge {{
     display: inline-block;
@@ -578,7 +599,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   }}
   @media print {{
     body {{ background: #fff; }}
-    .page {{ padding: 20px; }}
+    .page {{ padding: 0 0 16px; max-width: 100%; }}
   }}
 </style>
 </head>
