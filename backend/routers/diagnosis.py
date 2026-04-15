@@ -1,0 +1,259 @@
+import json
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models.diagnosis import DiagnosisRecord, ChatSession
+from rules.engine import run_diagnosis, RULE_VERSION
+from ai_chat import (
+    chat_with_ai,
+    get_missing_fields,
+    FIELD_DEFINITIONS,
+    normalize_project_type_field,
+    build_fields_display,
+)
+from report_generator import generate_report_html, generate_pdf
+
+router = APIRouter(prefix="/api")
+
+
+# ── Pydantic 模型 ──────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    session_id: str | None = None
+    message: str
+    fields: dict | None = None  # 前端当前编辑态，先发后合并再调模型
+
+
+class SessionFieldsBody(BaseModel):
+    fields: dict
+
+class ConfirmSubmit(BaseModel):
+    session_id: str
+    fields: dict           # 用户在前端确认/修改后的最终字段
+
+class DiagnoseDirectly(BaseModel):
+    bpm_id: str
+    project_type: str
+    fields: dict
+
+
+# ── 对话接口 ───────────────────────────────────────────────────
+
+@router.post("/chat")
+async def chat(body: ChatMessage, db: Session = Depends(get_db)):
+    """对话式收集项目信息"""
+
+    # 获取或创建会话
+    session_id = body.session_id or str(uuid.uuid4())
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+
+    if not session:
+        session = ChatSession(
+            session_id=session_id,
+            messages_json="[]",
+            extracted_fields_json="{}",
+            status="collecting",
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+    messages: list = json.loads(session.messages_json)
+    current_fields: dict = json.loads(session.extracted_fields_json)
+
+    if body.fields is not None:
+        current_fields.update(body.fields)
+
+    # 添加用户消息
+    messages.append({"role": "user", "content": body.message})
+
+    pt_ctx = current_fields.get("project_type")
+    if isinstance(pt_ctx, list):
+        project_type_for_ai = json.dumps(pt_ctx, ensure_ascii=False) if pt_ctx else None
+    else:
+        project_type_for_ai = pt_ctx
+
+    ai_result = await chat_with_ai(messages, current_fields, project_type_for_ai)
+
+    new_fields = ai_result.get("extracted", {})
+    current_fields.update({k: v for k, v in new_fields.items() if v is not None})
+    normalize_project_type_field(current_fields)
+
+    missing = get_missing_fields(current_fields)
+    is_complete = len(missing) == 0
+
+    messages.append({"role": "assistant", "content": ai_result["reply"]})
+
+    session.messages_json = json.dumps(messages, ensure_ascii=False)
+    session.extracted_fields_json = json.dumps(current_fields, ensure_ascii=False)
+    session.status = "confirmed" if is_complete else "collecting"
+    db.commit()
+
+    fields_display = build_fields_display(current_fields)
+
+    return {
+        "session_id": session_id,
+        "reply": ai_result["reply"],
+        "extracted_fields": current_fields,
+        "fields_display": fields_display,
+        "missing_fields": missing,
+        "is_complete": is_complete,
+        "status": session.status,
+    }
+
+
+@router.patch("/session/{session_id}/fields")
+async def patch_session_fields(session_id: str, body: SessionFieldsBody, db: Session = Depends(get_db)):
+    """仅更新结构化字段（右侧手工修改），不触发对话。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    current_fields: dict = json.loads(session.extracted_fields_json)
+    current_fields.update(body.fields)
+    normalize_project_type_field(current_fields)
+
+    missing = get_missing_fields(current_fields)
+    is_complete = len(missing) == 0
+
+    session.extracted_fields_json = json.dumps(current_fields, ensure_ascii=False)
+    session.status = "confirmed" if is_complete else "collecting"
+    db.commit()
+
+    return {
+        "session_id": session_id,
+        "extracted_fields": current_fields,
+        "fields_display": build_fields_display(current_fields),
+        "missing_fields": missing,
+        "is_complete": is_complete,
+        "status": session.status,
+    }
+
+
+@router.get("/field-definitions")
+async def field_definitions():
+    """供前端渲染下拉/多选。"""
+    return FIELD_DEFINITIONS
+
+
+@router.post("/confirm")
+async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db)):
+    """用户确认字段后提交诊断"""
+
+    session = db.query(ChatSession).filter(ChatSession.session_id == body.session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    fields = dict(body.fields)
+    normalize_project_type_field(fields)
+    session.extracted_fields_json = json.dumps(fields, ensure_ascii=False)
+
+    bpm_id = fields.get("bpm_id") or "未填写"
+    if isinstance(bpm_id, str) and not bpm_id.strip():
+        bpm_id = "未填写"
+
+    pt = fields.get("project_type")
+    if isinstance(pt, list) and pt:
+        pt_for_rules = pt
+        project_type_db = ",".join(pt)
+    elif isinstance(pt, str) and pt.strip():
+        pt_for_rules = [pt.strip()]
+        project_type_db = pt.strip()
+    else:
+        pt_for_rules = ["system_integration"]
+        project_type_db = "system_integration"
+
+    result = run_diagnosis(pt_for_rules, fields)
+
+    # 保存诊断记录
+    record = DiagnosisRecord(
+        bpm_id=bpm_id,
+        project_type=project_type_db,
+        input_json=json.dumps(fields, ensure_ascii=False),
+        overall_risk=result["overall_risk"],
+        result_json=json.dumps(result, ensure_ascii=False),
+        rule_version=RULE_VERSION,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "diagnosis_id": record.id,
+        "bpm_id": bpm_id,
+        "overall_risk": result["overall_risk"],
+        "overall_risk_label": result["overall_risk_label"],
+        "triggered_rules": result["triggered_rules"],
+        "tips": result["tips"],
+        "audit_checklist": result["audit_checklist"],
+        "rule_version": result["rule_version"],
+        "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
+    }
+
+
+@router.get("/diagnose/{diagnosis_id}")
+async def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)):
+    """按ID读取历史诊断报告"""
+    record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="报告不存在")
+
+    result = json.loads(record.result_json)
+    return {
+        "diagnosis_id": record.id,
+        "bpm_id": record.bpm_id,
+        "overall_risk": record.overall_risk,
+        "overall_risk_label": result.get("overall_risk_label", ""),
+        "triggered_rules": result.get("triggered_rules", []),
+        "tips": result.get("tips", []),
+        "audit_checklist": result.get("audit_checklist", []),
+        "rule_version": record.rule_version,
+        "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
+    }
+
+
+@router.get("/report/{diagnosis_id}/html", response_class=HTMLResponse)
+async def get_report_html(diagnosis_id: int, db: Session = Depends(get_db)):
+    """获取HTML格式报告"""
+    record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    result = json.loads(record.result_json)
+    created_at = record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else ""
+    html = generate_report_html(record.id, record.bpm_id, result, created_at)
+    return HTMLResponse(content=html)
+
+
+@router.get("/report/{diagnosis_id}/pdf")
+async def get_report_pdf(diagnosis_id: int, db: Session = Depends(get_db)):
+    """获取PDF格式报告"""
+    record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    result = json.loads(record.result_json)
+    created_at = record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else ""
+    html = generate_report_html(record.id, record.bpm_id, result, created_at)
+    pdf_bytes = await generate_pdf(html)
+    if pdf_bytes:
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=report_{diagnosis_id}.pdf"},
+        )
+    else:
+        # 降级为HTML下载
+        return Response(
+            content=html.encode("utf-8"),
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=report_{diagnosis_id}.html"},
+        )
+
+
+@router.get("/health")
+async def health():
+    return {"status": "ok", "rule_version": RULE_VERSION}

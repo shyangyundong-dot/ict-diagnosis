@@ -1,0 +1,37 @@
+# ICT 合规诊断 — 生产环境 Nginx 示例
+# 用法：将 frontend 执行 npm run build 后的 dist 放到 root 路径；
+# 后端 uvicorn 监听 127.0.0.1:8000（或按实际修改 upstream）。
+# 复制本文件到 /etc/nginx/sites-available/ 并 include 到主配置后 reload nginx。
+
+upstream ict_diagnosis_api {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    # listen 443 ssl;
+    server_name _;
+
+    # 前端静态资源（Vue 构建产物目录）
+    root /var/www/ict-diagnosis/frontend/dist;
+    index index.html;
+
+    # 后端 API：与开发环境 Vite proxy 行为一致，浏览器仍请求同源 /api/*
+    location /api/ {
+        proxy_pass http://ict_diagnosis_api/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # SPA 路由回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

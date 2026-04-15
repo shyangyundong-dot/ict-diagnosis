@@ -1,0 +1,1205 @@
+{
+  "version": "v1.1",
+  "rules": [
+    {
+      "id": "R01",
+      "layer": 1,
+      "name": "虚假项目",
+      "trigger": {
+        "logic": "MANUAL",
+        "conditions": []
+      },
+      "risk_level": "high",
+      "risk_description": "不存在实际业务需求，业务流程系人为虚构。此规则需人工核查——需核实项目是否有真实商业需求和实质交付环节。",
+      "remediation": "立即终止项目推进。需核实：①是否存在真实业务需求；②客户是否为实际使用方；③业务流程是否有实质性交付环节。如核实后确认非虚假项目，需逐项提供证明材料。",
+      "clause_id": "clause_R01",
+      "optimization_direction": "此类项目不存在合规列收路径，应放弃。如确有真实需求，需彻底重构项目模式——去除关联关系并融入电信自有能力。",
+      "audit_materials": [
+        {
+          "item": "客户需求说明文件",
+          "purpose": "证明真实业务需求存在"
+        },
+        {
+          "item": "客户沟通往来记录",
+          "purpose": "证明商机真实性"
+        },
+        {
+          "item": "客户现场拜访照片",
+          "purpose": "证明客户实体及业务场景真实"
+        },
+        {
+          "item": "BPM商机信息截图",
+          "purpose": "证明商机录入合规"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R02",
+      "layer": 1,
+      "name": "前后向关联关系+无增值",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "related_party",
+            "operator": "eq",
+            "value": "yes"
+          },
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "no"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "前向客户与后向供应商存在关联关系（同一控制人/收付款账户相同），且电信未提供任何实质性增值服务。",
+      "remediation": "立即终止。如需继续：①去除前后向关联关系或更换供应商；②融入电信自有产品或服务能力，体现实质性增值。",
+      "clause_id": "clause_R02",
+      "optimization_direction": "重新评估项目价值链，引入非关联供应商，同时融入电信自有云网、运维等能力，体现电信在交易中的独立价值。",
+      "audit_materials": [
+        {
+          "item": "天眼查关联关系核查报告",
+          "purpose": "核实前后向是否存在关联关系"
+        },
+        {
+          "item": "电信自有服务增值证明",
+          "purpose": "证明电信提供了实质性增值"
+        },
+        {
+          "item": "BPM商机及客户认证截图",
+          "purpose": "证明商机合规"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R03",
+      "layer": 1,
+      "name": "三零项目",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "gross_margin",
+            "operator": "eq",
+            "value": "lte_0"
+          },
+          {
+            "field": "capability_ratio",
+            "operator": "eq",
+            "value": "all_external"
+          },
+          {
+            "field": "contract_content_same",
+            "operator": "eq",
+            "value": "yes"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "同时满足：零利润（毛利率≤0%）+ 零自有能力投入 + 零增值（前后向合同内容完全一致），符合「三零项目」认定标准。注意：前端表单需增加 lte_0 选项，当前最低为≤3%。",
+      "remediation": "当前模式不可列收。必须至少解决一个「零」：①提升毛利率；②融入自有能力；③在合同中体现电信差异化服务内容。",
+      "clause_id": "clause_R03",
+      "optimization_direction": "三方向突破：①融入电信云网/安全等自有产品提升自研占比；②在合同中增加集成调试、项目管理、运维等电信侧价值项；③通过差额列收合规处理。",
+      "audit_materials": [
+        {
+          "item": "成本明细表",
+          "purpose": "核实毛利率真实水平"
+        },
+        {
+          "item": "方案设计文档",
+          "purpose": "证明电信自有能力融入"
+        },
+        {
+          "item": "前后向合同对比分析",
+          "purpose": "证明合同内容存在差异"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R04",
+      "layer": 1,
+      "name": "工程类收入混入产数",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "hardware_construction",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "项目含土建、布线、管道施工等工程类内容，该部分不可列入ICT产数业绩。细化判定（财务确认）：①自有人员实施→可列固网其他收入（🟡中风险）；②外包/供应商实施→仅差额列收（差额=含税收入-含税成本）；③包装为ICT服务收入→违规列收（参见R25）。",
+      "remediation": "将工程类内容从ICT服务收入中剥离。如为自有人员实施，可列入固网其他收入（须提供出勤记录、施工日志、现场照片）；如为外包实施，只能按含税差额列收；严禁包装为ICT服务收入。",
+      "clause_id": "clause_R04",
+      "optimization_direction": "将项目拆分为ICT服务部分和工程部分分别列收，确保收入归属正确。工程部分如有自有人员实施可列固网其他。",
+      "audit_materials": [
+        {
+          "item": "合同中服务内容说明",
+          "purpose": "区分ICT服务与工程内容"
+        },
+        {
+          "item": "实际交付清单",
+          "purpose": "明确区分设备、服务与工程部分"
+        },
+        {
+          "item": "财务分类明细",
+          "purpose": "证明收入归属正确"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development",
+        "service"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R05",
+      "layer": 1,
+      "name": "十个不准（任一条）",
+      "trigger": {
+        "logic": "MANUAL",
+        "conditions": []
+      },
+      "risk_level": "high",
+      "risk_description": "综合性规则——集团「十个不准」中任意一条被触发即为高风险。各子条款已分别体现在R01-R04、R09、R12、R13等规则中。本规则提醒用户对照附录一完整条款逐条自查。",
+      "remediation": "对照「十个不准」完整条款逐条自查：①不准背离主业；②不准参与无商业目的贸易；③不准增加不必要交易环节；④不准融资性贸易；⑤不准无控制权空转走单；⑥不准循环贸易；⑦不准三流不齐备；⑧不准非标仓单交易；⑨不准代理行为全额列收；⑩不准缺乏内控。",
+      "clause_id": "clause_R05",
+      "optimization_direction": "确保项目具备商业实质、电信拥有控制权、不存在关联关系空转等问题。",
+      "audit_materials": [
+        {
+          "item": "项目商业实质说明",
+          "purpose": "证明具备真实商业目的"
+        },
+        {
+          "item": "控制权证明材料",
+          "purpose": "证明电信有实质控制"
+        },
+        {
+          "item": "关联关系核查报告",
+          "purpose": "排除关联交易嫌疑"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R06",
+      "layer": 2,
+      "name": "有自有能力，总集总包",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "yes"
+          },
+          {
+            "field": "scheme_reviewed",
+            "operator": "eq",
+            "value": "yes"
+          }
+        ]
+      },
+      "risk_level": "low",
+      "risk_description": "电信融入自有产品/能力，且作为总集成商承担总体规划、系统集成、售后运维责任，控制权充分，可全额列收。",
+      "remediation": "当前模式合规。建议保持并强化「六到位」过程留痕，确保审计可追溯。",
+      "clause_id": "clause_R06",
+      "optimization_direction": "当前模式良好，建议持续提升自有能力占比，巩固总集总包地位。",
+      "audit_materials": [
+        {
+          "item": "方案设计文档（含拓扑图）",
+          "purpose": "证明电信主导方案设计"
+        },
+        {
+          "item": "中台把关/评审记录",
+          "purpose": "证明方案经过审核"
+        },
+        {
+          "item": "电信自有产品融入清单",
+          "purpose": "证明自有能力融入"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ]
+    },
+    {
+      "id": "R07",
+      "layer": 2,
+      "name": "无自有能力但有总控",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "no"
+          },
+          {
+            "field": "scheme_reviewed",
+            "operator": "eq",
+            "value": "yes"
+          },
+          {
+            "field": "contract_content_same",
+            "operator": "neq",
+            "value": "yes"
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "risk_description": "无自有产品融入，但电信承担总体规划设计、项目管理、客户界面责任，后向供应商仅为分包执行。需确认控制权证明材料后可列收。",
+      "remediation": "准备控制权证明材料：方案由电信主导的证据、项目管理记录、客户界面记录。建议同步完成R08控制权证据核查。",
+      "clause_id": "clause_R07",
+      "optimization_direction": "尽快融入电信自有产品或能力，提升从代理人向主要责任人的角色转变。",
+      "audit_materials": [
+        {
+          "item": "方案设计文档",
+          "purpose": "证明电信主导总体设计"
+        },
+        {
+          "item": "项目管理记录（周报/月报）",
+          "purpose": "证明电信承担项目管理"
+        },
+        {
+          "item": "客户沟通记录",
+          "purpose": "证明电信是第一服务界面"
+        },
+        {
+          "item": "后向供应商分包合同",
+          "purpose": "证明供应商为分包角色"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ]
+    },
+    {
+      "id": "R08",
+      "layer": 2,
+      "name": "控制权证据核查",
+      "trigger": {
+        "logic": "OR",
+        "conditions": [
+          {
+            "field": "capability_ratio",
+            "operator": "eq",
+            "value": "all_external"
+          },
+          {
+            "field": "capability_ratio",
+            "operator": "eq",
+            "value": "very_low"
+          },
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "partial"
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "risk_description": "自有能力占比较低或仅部分融入，触发六项控制权证据核查（C1-C6）：C1实质控制权、C2主要责任、C3定价权、C4存货风险、C5第一服务界面、C6实质性增值。判定逻辑：C1-C5全部「是」→低风险；1-2项「否」→中风险（提级审批）；3项以上「否」→高风险（强烈建议差额）；C1或C2任一「否」→直接高风险。",
+      "remediation": "请逐项确认六项控制权核查：\nC1：电信是否在转交客户前取得实质控制权？\nC2：电信是否承担交付失败的主要责任？\nC3：电信是否对最终定价有主导权（利润率≥5%）？\nC4：电信是否承担存货/服务失效风险？\nC5：电信是否是客户的第一服务界面？\nC6：电信是否提供了超越转包的实质性增值？",
+      "clause_id": "clause_R08",
+      "optimization_direction": "针对核查为「否」的控制权项逐一补强：增加验收环节、建立运维机制、在合同中明确定价权和风险承担条款。",
+      "audit_materials": [
+        {
+          "item": "控制权证据核查表（C1-C6）",
+          "purpose": "记录六项核查结果"
+        },
+        {
+          "item": "合同中风险承担条款",
+          "purpose": "证明电信承担主要风险"
+        },
+        {
+          "item": "定价决策记录",
+          "purpose": "证明电信拥有定价权"
+        },
+        {
+          "item": "售后运维责任人名单",
+          "purpose": "证明电信为第一服务界面"
+        },
+        {
+          "item": "电信增值服务工作成果",
+          "purpose": "证明实质性增值"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ]
+    },
+    {
+      "id": "R09",
+      "layer": 2,
+      "name": "纯外采无控制权",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "capability_ratio",
+            "operator": "eq",
+            "value": "all_external"
+          },
+          {
+            "field": "contract_content_same",
+            "operator": "eq",
+            "value": "yes"
+          },
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "no"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "全部外采，前后向合同内容高度一致，电信无实质性贡献，属于「无控制权空转走单」。",
+      "remediation": "当前模式不可全额列收。仅可差额列收手续费部分。建议重新评估项目模式或放弃。",
+      "clause_id": "clause_R09",
+      "optimization_direction": "从纯外采转型为总集成：融入云网、安全、运维等自有能力，在合同中体现集成调试和管理费等价值项，使前后向合同产生实质差异。",
+      "audit_materials": [
+        {
+          "item": "前后向合同对比分析",
+          "purpose": "核实合同内容一致程度"
+        },
+        {
+          "item": "电信增值服务证明",
+          "purpose": "证明电信有实质性贡献"
+        },
+        {
+          "item": "差额列收计算说明",
+          "purpose": "差额列收的金额依据"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ],
+      "high_risk_type": "no_full_revenue"
+    },
+    {
+      "id": "R10",
+      "layer": 2,
+      "name": "异地项目有实施能力",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "project_location",
+            "operator": "eq",
+            "value": "remote_with_capability"
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "risk_description": "项目在异地实施，但电信在当地有驻场人员和实施能力。须提供驻场实施证明材料后可列收。",
+      "remediation": "留存：驻场人员名单、出差审批记录、打卡记录、现场照片（含时间戳和地点信息）。",
+      "clause_id": "clause_R10",
+      "optimization_direction": "强化异地实施管控：驻场日志制度、定期进度报告、现场照片和客户签字确认。",
+      "audit_materials": [
+        {
+          "item": "驻场人员名单",
+          "purpose": "证明电信有人员参与现场"
+        },
+        {
+          "item": "出差审批记录及差旅票据",
+          "purpose": "证明人员确实前往现场"
+        },
+        {
+          "item": "现场考勤/打卡记录",
+          "purpose": "证明人员在场时间"
+        },
+        {
+          "item": "现场实施照片（含时间戳）",
+          "purpose": "证明实质性交付"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development",
+        "service"
+      ]
+    },
+    {
+      "id": "R11",
+      "layer": 2,
+      "name": "异地项目无实施能力",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "project_location",
+            "operator": "eq",
+            "value": "remote_without_capability"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "前向客户与后向供应商注册地均在外省，合同未明确服务交付地，且电信无外地实施总控能力。禁止做。",
+      "remediation": "终止项目。异地项目必须具备本地实施能力方可推进。",
+      "clause_id": "clause_R11",
+      "optimization_direction": "如确需承接，须先建立当地实施团队或与当地分公司协作，确保有实质性本地交付能力。",
+      "audit_materials": [
+        {
+          "item": "项目实施地点说明",
+          "purpose": "明确交付地点"
+        },
+        {
+          "item": "电信当地实施能力证明",
+          "purpose": "证明具备异地实施条件"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development",
+        "service"
+      ],
+      "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R12",
+      "layer": 3,
+      "name": "过手项目判定",
+      "trigger": {
+        "logic": "MIN_MATCH",
+        "min_count": 2,
+        "conditions": [
+          {
+            "field": "contract_content_same",
+            "operator": "eq",
+            "value": "yes"
+          },
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "no"
+          },
+          {
+            "field": "gross_margin",
+            "operator": "in",
+            "value": [
+              "lte_3",
+              "pct_4_5"
+            ]
+          },
+          {
+            "field": "procurement_method",
+            "operator": "eq",
+            "value": "sole_source"
+          },
+          {
+            "field": "scheme_reviewed",
+            "operator": "eq",
+            "value": "no"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "满足以下条件中≥2条，符合「过手项目」风险特征：①前后向合同内容高度一致；②无自有能力融入；③毛利率≤5%；④甲方单一来源指定；⑤无售中实施佐证（方案未经评审）。",
+      "remediation": "逐条化解触发条件：补充电信自主增值服务证明、确保前后向合同内容有实质差异、提供实施过程佐证。无法化解则差额列收或放弃。",
+      "clause_id": "clause_R12",
+      "optimization_direction": "逐项突破：①合同中增加电信侧服务内容使前后向差异化；②融入自有产品提升能力占比；③通过方案评审确保有实施留痕。",
+      "audit_materials": [
+        {
+          "item": "前后向合同对比分析",
+          "purpose": "证明合同内容有差异"
+        },
+        {
+          "item": "电信自有增值服务证明",
+          "purpose": "证明电信有独立价值"
+        },
+        {
+          "item": "项目实施总结",
+          "purpose": "证明电信参与了实质性交付"
+        },
+        {
+          "item": "成本明细表",
+          "purpose": "核实毛利率"
+        },
+        {
+          "item": "标前决策会记录",
+          "purpose": "证明采购方式合规"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R13",
+      "layer": 3,
+      "name": "客商互换风险",
+      "trigger": {
+        "logic": "MANUAL",
+        "conditions": []
+      },
+      "risk_level": "high",
+      "risk_description": "同一企业既是前向客户又是后向供应商（或存在业务互换关系）。此规则需人工核查，工具无法自动判定。",
+      "remediation": "通过天眼查或BPM关联关系核查工具排查前后向是否互为客商。如存在，须终止项目。",
+      "clause_id": "clause_R13",
+      "optimization_direction": "确保前后向为完全独立的企业，不存在任何业务互换关系。",
+      "audit_materials": [
+        {
+          "item": "前后向关联关系比对报告",
+          "purpose": "排除客商互换嫌疑"
+        },
+        {
+          "item": "历史交易记录查询",
+          "purpose": "核实是否存在反向交易"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R14",
+      "layer": 3,
+      "name": "前后向关联但有价值",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "related_party",
+            "operator": "eq",
+            "value": "yes"
+          },
+          {
+            "field": "has_telecom_capability",
+            "operator": "in",
+            "value": [
+              "yes",
+              "partial"
+            ]
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "risk_description": "前后向存在关联关系，但电信可证明具有特定价值贡献且未增加不必要交易环节。需提级审批。",
+      "remediation": "准备价值贡献证明并提级审批：①电信的不可替代性说明；②关联关系不影响定价公允性；③不存在人为增加交易环节。审批通过后可列收。",
+      "clause_id": "clause_R14",
+      "optimization_direction": "强化电信在项目中的价值贡献证据链，确保审批材料充分。",
+      "audit_materials": [
+        {
+          "item": "关联关系说明及比对报告",
+          "purpose": "披露关联关系详情"
+        },
+        {
+          "item": "电信价值贡献说明",
+          "purpose": "证明电信的不可替代性"
+        },
+        {
+          "item": "提级审批记录",
+          "purpose": "证明已按流程审批"
+        },
+        {
+          "item": "定价公允性说明",
+          "purpose": "证明价格合理"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R15",
+      "layer": 3,
+      "name": "特定企业合作项目",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "customer_type",
+            "operator": "eq",
+            "value": "private"
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "risk_description": "前向客户为民营企业，可能属于BPM系统标注的民营上市/待上市特定企业。需商机管理员审核业务真实性后方可列收。",
+      "remediation": "确认客户是否在BPM「特定企业」名单内。如在名单内，须由商机管理员审核业务真实性。",
+      "clause_id": "clause_R15",
+      "optimization_direction": "提前在BPM确认特定企业标签状态，如触发须提前准备业务真实性审核材料。",
+      "audit_materials": [
+        {
+          "item": "BPM特定企业标签查询截图",
+          "purpose": "确认是否为特定企业"
+        },
+        {
+          "item": "商机管理员审核记录",
+          "purpose": "证明业务真实性已审核"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R16",
+      "layer": 3,
+      "name": "非最终用户",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "is_end_user",
+            "operator": "eq",
+            "value": false
+          }
+        ]
+      },
+      "risk_level": "tip",
+      "risk_description": "【📋操作提示，不参与风险等级判定】前向客户非服务最终使用者（即电信的直接客户还需转售给第三方）。财务确认：合同材料可以不体现，审计也不审那么细。",
+      "remediation": "📋 操作提示：如前向客户非服务的最终使用者，请核实最终客户的资质及业务实质性需求，并在商机备注中说明转售背景，留存相关确认文件备查。",
+      "clause_id": "clause_R16",
+      "optimization_direction": "尽量直接对接最终用户签约，减少中间环节。",
+      "audit_materials": [
+        {
+          "item": "最终用户需求确认函",
+          "purpose": "核实最终用户的真实需求"
+        },
+        {
+          "item": "业务流转说明",
+          "purpose": "说明中间环节的商业合理性"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R17",
+      "layer": 4,
+      "name": "时点法适用",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "revenue_recognition",
+            "operator": "eq",
+            "value": "point_in_time"
+          }
+        ]
+      },
+      "risk_level": "low",
+      "risk_description": "项目为一次性交付，应在客户签收/验收时点一次性确认收入，不得提前或跨期列收。",
+      "remediation": "合规提示：确保收入确认时点与客户签收/验收一致，提前准备验收报告和签收单。",
+      "clause_id": "clause_R17",
+      "optimization_direction": "确保验收流程规范，客户签收文件齐备。",
+      "audit_materials": [
+        {
+          "item": "客户验收报告/签收单",
+          "purpose": "证明交付时点"
+        },
+        {
+          "item": "收入确认财务凭证",
+          "purpose": "证明确认时点合规"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R18",
+      "layer": 4,
+      "name": "时段法适用（周期型）",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "revenue_recognition",
+            "operator": "eq",
+            "value": "over_time"
+          }
+        ]
+      },
+      "risk_level": "low",
+      "risk_description": "项目为持续性服务，须按合同服务周期逐月/按进度确认收入，不得一次性全额列收。",
+      "remediation": "建立按月确认收入的财务台账，与客户定期对账，保留月度工作量确认单。",
+      "clause_id": "clause_R18",
+      "optimization_direction": "确保按服务周期逐月确认，保留过程对账记录。",
+      "audit_materials": [
+        {
+          "item": "合同约定服务周期说明",
+          "purpose": "证明收入确认周期依据"
+        },
+        {
+          "item": "按月确认收入财务台账",
+          "purpose": "证明按进度确认"
+        },
+        {
+          "item": "客户对账单/月度工作量确认单",
+          "purpose": "证明服务实际交付"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R19",
+      "layer": 4,
+      "name": "跨期提前列收（禁止）",
+      "trigger": {
+        "logic": "MANUAL",
+        "conditions": []
+      },
+      "risk_level": "high",
+      "risk_description": "周期型业务在合同期开始前或当期完成前一次性确认整个合同期收入——违规列收。此规则需在收入确认阶段人工核查。",
+      "remediation": "须按月调整收入确认。已提前确认的收入须追溯调整。",
+      "clause_id": "clause_R19",
+      "optimization_direction": "建立合规的收入确认流程，杜绝提前列收。",
+      "audit_materials": [
+        {
+          "item": "收入确认时间线与合同期对比",
+          "purpose": "核实是否提前列收"
+        },
+        {
+          "item": "财务调整记录",
+          "purpose": "提前列收须提供调整证明"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R20",
+      "layer": 4,
+      "name": "跨年滞后列收（禁止）",
+      "trigger": {
+        "logic": "MANUAL",
+        "conditions": []
+      },
+      "risk_level": "high",
+      "risk_description": "已完成交付的项目收入未在当期确认，延迟至下一会计期间列收——违规列收。此规则需在收入确认阶段人工核查。",
+      "remediation": "须追溯调整，将收入确认至正确会计期间。参考网易有道案例：已列收要调，未列收走代收代付模式，成本部分冲销。",
+      "clause_id": "clause_R20",
+      "optimization_direction": "交付完成后及时触发财务确认流程。",
+      "audit_materials": [
+        {
+          "item": "验收报告日期与收入确认日期对比",
+          "purpose": "核实是否滞后列收"
+        },
+        {
+          "item": "财务追溯调整记录",
+          "purpose": "滞后须提供调整证明"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R21",
+      "layer": 4,
+      "name": "全额法适用（主要责任人）",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "has_telecom_capability",
+            "operator": "in",
+            "value": [
+              "yes",
+              "partial"
+            ]
+          },
+          {
+            "field": "capability_ratio",
+            "operator": "in",
+            "value": [
+              "medium",
+              "high"
+            ]
+          }
+        ]
+      },
+      "risk_level": "low",
+      "risk_description": "电信为主要责任人：承担交付主要风险、有定价主导权、是客户第一服务界面，可全额确认收入。",
+      "remediation": "合规提示：保持主要责任人地位的证据留存，确保全额列收有充分依据。",
+      "clause_id": "clause_R21",
+      "optimization_direction": "持续巩固主要责任人地位。",
+      "audit_materials": [
+        {
+          "item": "合同中电信责任条款",
+          "purpose": "证明电信为主要责任人"
+        },
+        {
+          "item": "定价决策记录",
+          "purpose": "证明有定价主导权"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ]
+    },
+    {
+      "id": "R22",
+      "layer": 4,
+      "name": "差额法适用（代理人）",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "no"
+          },
+          {
+            "field": "capability_ratio",
+            "operator": "in",
+            "value": [
+              "all_external",
+              "very_low"
+            ]
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "risk_description": "电信为代理人：仅撮合/转包、无实质控制权、定价权在供应商。仅可确认净额（手续费/服务费），不得全额列收。",
+      "remediation": "按差额法确认收入（含税计算），仅列收手续费或服务费部分。准备差额列收计算说明。",
+      "clause_id": "clause_R22",
+      "optimization_direction": "从代理人向主要责任人转型：融入自有能力、建立定价权、承担交付风险。",
+      "audit_materials": [
+        {
+          "item": "差额列收计算说明（含税）",
+          "purpose": "说明收入确认金额依据"
+        },
+        {
+          "item": "财务审核意见",
+          "purpose": "确认差额列收合规"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ]
+    },
+    {
+      "id": "R23",
+      "layer": 4,
+      "name": "强制差额情形（与R08联动）",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "capability_ratio",
+            "operator": "eq",
+            "value": "all_external"
+          },
+          {
+            "field": "has_telecom_capability",
+            "operator": "eq",
+            "value": "no"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "控制权核查结果为高风险（R08中C1或C2为否，或C1-C5中3项以上为否），且无财务负责人书面审批。强制差额列收。",
+      "remediation": "强制差额列收，不得全额。如坚持全额，须财务负责人出具书面意见并留存。",
+      "clause_id": "clause_R23",
+      "optimization_direction": "从根本上提升控制权：融入自有能力、承担交付风险、建立第一服务界面，改善R08核查结果后方可全额。",
+      "audit_materials": [
+        {
+          "item": "R08控制权核查表",
+          "purpose": "记录C1-C6核查结果"
+        },
+        {
+          "item": "差额列收计算说明",
+          "purpose": "差额列收金额依据"
+        },
+        {
+          "item": "财务负责人审批意见（如坚持全额）",
+          "purpose": "特批全额的书面依据"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "software_development"
+      ],
+      "high_risk_type": "no_full_revenue"
+    },
+    {
+      "id": "R24",
+      "layer": 5,
+      "name": "硬件收入包装为服务收入（禁止）",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "hardware_construction",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "合同标注为技术服务，但实际交付以硬件设备为主。硬件部分须调整至正确收入类别，不得列为产数服务收入。按新税法要求，设备及附带安装服务税率为13%。",
+      "remediation": "强制分拆：硬件部分按设备销售处理，服务部分按ICT服务处理，分别列收。",
+      "clause_id": "clause_R24",
+      "optimization_direction": "在合同中明确区分硬件与服务的金额占比，服务部分独立计价。",
+      "audit_materials": [
+        {
+          "item": "合同中服务与硬件清单",
+          "purpose": "区分硬件与服务内容"
+        },
+        {
+          "item": "实际交付清单",
+          "purpose": "核实实际交付物构成"
+        },
+        {
+          "item": "财务分类明细",
+          "purpose": "证明收入分类正确"
+        }
+      ],
+      "applies_to": [
+        "software_development",
+        "service"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R25",
+      "layer": 5,
+      "name": "施工收入包装为服务收入（禁止）",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "hardware_construction",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "实际内容含设备安装、布线施工，但全额列为ICT服务收入。施工部分须单独列示，不得计入产数服务型收入。",
+      "remediation": "施工部分从ICT服务收入中剥离单独列示。调测类内容属于擦边，建议提前与财务确认归属。",
+      "clause_id": "clause_R25",
+      "optimization_direction": "合同中明确区分服务内容与施工内容，分别计价列收。",
+      "audit_materials": [
+        {
+          "item": "合同中服务范围说明",
+          "purpose": "区分服务与施工"
+        },
+        {
+          "item": "施工内容明细及金额",
+          "purpose": "核实施工占比"
+        },
+        {
+          "item": "财务分类确认记录",
+          "purpose": "证明分类正确"
+        }
+      ],
+      "applies_to": [
+        "system_integration",
+        "service"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R26",
+      "layer": 5,
+      "name": "设备销售物流非主控",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "logistics_control",
+            "operator": "eq",
+            "value": "supplier_direct"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "设备销售项目中物权流转为「供应商→直发客户」，电信未经手仓储/验收，属于空转走单。",
+      "remediation": "不得列收。须核实物权控制权，确保物流路径为「供应商→电信仓储/验收→客户」。",
+      "clause_id": "clause_R26",
+      "optimization_direction": "建立电信侧的仓储验收环节，确保物权经由电信控制后再交付客户。",
+      "audit_materials": [
+        {
+          "item": "物流签收单据",
+          "purpose": "证明物流路径"
+        },
+        {
+          "item": "仓储出入库记录",
+          "purpose": "证明电信经手仓储"
+        },
+        {
+          "item": "三方物流合同",
+          "purpose": "证明物流安排合规"
+        }
+      ],
+      "applies_to": [
+        "equipment_sales"
+      ],
+      "high_risk_type": "no_revenue"
+    },
+    {
+      "id": "R27",
+      "layer": 6,
+      "name": "单一来源采购风险",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "procurement_method",
+            "operator": "eq",
+            "value": "sole_source"
+          }
+        ]
+      },
+      "risk_level": "tip",
+      "risk_description": "【📋操作提示，不参与风险等级判定】后向采购方式为甲方单一来源指定（即客户指定特定供应商）。因工具在BPM之前使用，只能输出风险提示和整改建议。",
+      "remediation": "风险提示：①准备标前决策会记录说明单一来源合理性；②准备审计所需的采购合规材料；③如后向采购中购买标书企业为特定企业（系统打标范围内），确认相关领导已知悉并阅办，留存审批记录。",
+      "clause_id": "clause_R27",
+      "optimization_direction": "如条件允许，建议采用比选或公开招标方式降低采购合规风险。",
+      "audit_materials": [
+        {
+          "item": "标前决策会会议纪要",
+          "purpose": "说明单一来源采购合理性"
+        },
+        {
+          "item": "单一来源采购说明书",
+          "purpose": "采购合规依据"
+        },
+        {
+          "item": "上级审批文件",
+          "purpose": "证明审批流程合规"
+        },
+        {
+          "item": "供应商遴选比选记录（如有）",
+          "purpose": "证明独立决策"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R28",
+      "layer": 6,
+      "name": "购买标书企业为特定企业",
+      "trigger": {
+        "logic": "MANUAL",
+        "conditions": []
+      },
+      "risk_level": "tip",
+      "risk_description": "【📋操作提示，不参与风险等级判定】后向采购中购买标书企业为BPM系统标注的特定企业。原文标注“暂定”，属内部流程管理规则，无上位文件支撑。",
+      "remediation": "📋 操作提示：如后向采购中购买标书企业为特定企业（系统打标范围内），请确认相关领导已知悉并阅办，留存审批记录备查。",
+      "clause_id": "clause_R28",
+      "optimization_direction": "提前在BPM确认标书企业标签状态，确保领导知悉。",
+      "audit_materials": [
+        {
+          "item": "BPM特定企业标签查询截图",
+          "purpose": "确认标书企业是否为特定企业"
+        },
+        {
+          "item": "领导知悉/阅办记录",
+          "purpose": "证明已按流程报备"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ]
+    },
+    {
+      "id": "R29",
+      "layer": 7,
+      "name": "预付款禁止",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "has_prepayment",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "项目合同中含预付款条款，或实际发生预付款行为。广东电信地方性规定：预付款不允许，须提报总经办一事一议审批后方可执行。",
+      "remediation": "立即终止预付款安排。如确需预付款，须提报总经办一事一议审批，获批后方可执行。未获批前不得支付。",
+      "clause_id": "clause_R29",
+      "optimization_direction": "调整付款条件为验收后付款或分期付款，避免预付款。",
+      "audit_materials": [
+        {
+          "item": "合同付款条款",
+          "purpose": "核实是否含预付款"
+        },
+        {
+          "item": "总经办一事一议审批记录（如获批）",
+          "purpose": "证明特批流程合规"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R30",
+      "layer": 7,
+      "name": "垫资禁止",
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "has_advance_funding",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "risk_level": "high",
+      "risk_description": "项目存在电信先行垫付资金的情形（无论金额大小）。广东电信地方性规定：垫资不允许，须提报总经办一事一议审批后方可执行。",
+      "remediation": "立即终止垫资安排。如确需垫资，须提报总经办一事一议审批，获批后方可执行。未获批前不得垫付。",
+      "clause_id": "clause_R30",
+      "optimization_direction": "调整资金安排，确保客户先付款或同步付款，避免电信垫资。",
+      "audit_materials": [
+        {
+          "item": "资金支付时间线",
+          "purpose": "核实是否存在垫资"
+        },
+        {
+          "item": "总经办一事一议审批记录（如获批）",
+          "purpose": "证明特批流程合规"
+        }
+      ],
+      "applies_to": [
+        "all"
+      ],
+      "high_risk_type": "forbidden"
+    }
+  ]
+}
