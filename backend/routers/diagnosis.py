@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -187,11 +187,12 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         result["ai_enriched"] = False
         result["ai_error"] = str(e)
 
-    # 保存诊断记录
+    # 保存诊断记录（对话快照仅用于溯源，不进入报告）
     record = DiagnosisRecord(
         bpm_id=bpm_id,
         project_type=project_type_db,
         input_json=json.dumps(fields, ensure_ascii=False),
+        chat_snapshot_json=session.messages_json,
         overall_risk=result["overall_risk"],
         result_json=json.dumps(result, ensure_ascii=False),
         rule_version=RULE_VERSION,
@@ -210,6 +211,78 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         "audit_checklist": result["audit_checklist"],
         "rule_version": result["rule_version"],
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
+    }
+
+
+@router.get("/diagnose/by-bpm")
+async def list_diagnoses_by_bpm(
+    bpm_id: str = Query(..., description="BPM 商机编码（与填报时一致，精确匹配）"),
+    db: Session = Depends(get_db),
+):
+    """按 BPM 商机编码查询历史诊断记录（同一编码可有多条，按时间倒序）。"""
+    key = (bpm_id or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="请提供 BPM 商机编码")
+
+    records = (
+        db.query(DiagnosisRecord)
+        .filter(DiagnosisRecord.bpm_id == key)
+        .order_by(DiagnosisRecord.created_at.desc())
+        .all()
+    )
+
+    items = []
+    for rec in records:
+        result = json.loads(rec.result_json)
+        items.append(
+            {
+                "diagnosis_id": rec.id,
+                "bpm_id": rec.bpm_id,
+                "project_type": rec.project_type,
+                "overall_risk": rec.overall_risk,
+                "overall_risk_label": result.get("overall_risk_label", ""),
+                "rule_version": rec.rule_version,
+                "created_at": rec.created_at.strftime("%Y-%m-%d %H:%M") if rec.created_at else "",
+            }
+        )
+
+    return {"bpm_id": key, "count": len(items), "items": items}
+
+
+@router.get("/diagnose/{diagnosis_id}/traceability")
+async def get_diagnosis_traceability(diagnosis_id: int, db: Session = Depends(get_db)):
+    """填报溯源：返回提交时的确认字段与对话快照（不用于报告正文）。"""
+    record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="诊断记录不存在")
+
+    try:
+        confirmed_fields = json.loads(record.input_json)
+    except Exception:
+        confirmed_fields = {}
+
+    chat_messages: list = []
+    raw = record.chat_snapshot_json
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                chat_messages = parsed
+        except Exception:
+            chat_messages = []
+
+    fields_display = build_fields_display(confirmed_fields) if confirmed_fields else []
+
+    return {
+        "diagnosis_id": record.id,
+        "bpm_id": record.bpm_id,
+        "project_type": record.project_type,
+        "rule_version": record.rule_version,
+        "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
+        "confirmed_fields": confirmed_fields,
+        "fields_display": fields_display,
+        "chat_messages": chat_messages,
+        "has_chat_snapshot": bool(chat_messages),
     }
 
 

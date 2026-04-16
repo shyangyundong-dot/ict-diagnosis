@@ -11,7 +11,11 @@
             <div class="logo-sub">广州电信云中台</div>
           </div>
         </div>
-        <button class="new-chat-btn" @click="resetChat">＋ 新建诊断</button>
+        <div class="header-actions">
+          <router-link to="/lookup" class="lookup-link">按 BPM 查历史</router-link>
+          <router-link to="/trace" class="lookup-link">填报溯源</router-link>
+          <button class="new-chat-btn" @click="resetChat">＋ 新建诊断</button>
+        </div>
       </div>
 
       <!-- 消息列表 -->
@@ -413,6 +417,27 @@ function resetChat() {
 .logo-icon { font-size: 28px; }
 .logo-title { font-size: 16px; font-weight: 700; color: var(--slate-800); }
 .logo-sub { font-size: 12px; color: var(--slate-400); }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lookup-link {
+  padding: 7px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--blue-600);
+  text-decoration: none;
+  border: 1px solid var(--blue-100);
+  background: var(--blue-50);
+  transition: all 0.15s;
+}
+.lookup-link:hover {
+  background: var(--blue-100);
+  border-color: var(--blue-300);
+}
 
 .new-chat-btn {
   padding: 7px 16px;

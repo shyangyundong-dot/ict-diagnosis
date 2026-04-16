@@ -22,6 +22,13 @@ export const confirmDiagnosis = (sessionId, fields) =>
 export const getDiagnosis = (id) =>
   api.get(`/diagnose/${id}`)
 
+export const listDiagnosesByBpm = (bpmId) =>
+  api.get('/diagnose/by-bpm', { params: { bpm_id: bpmId } })
+
+/** 填报溯源：确认字段 + 对话快照（不用于报告页） */
+export const getDiagnosisTraceability = (id) =>
+  api.get(`/diagnose/${id}/traceability`)
+
 export const getReportHtml = (id) =>
   `/api/report/${id}/html`
 

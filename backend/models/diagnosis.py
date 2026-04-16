@@ -11,6 +11,8 @@ class DiagnosisRecord(Base):
     bpm_id = Column(String(100), nullable=False)
     project_type = Column(String(200), nullable=False)
     input_json = Column(Text, nullable=False)
+    # 提交诊断时的对话快照（JSON 数组，元素含 role/content），与报告展示无关，供溯源查询
+    chat_snapshot_json = Column(Text, nullable=True)
     overall_risk = Column(String(20), nullable=False)
     result_json = Column(Text, nullable=False)
     rule_version = Column(String(20), nullable=False)

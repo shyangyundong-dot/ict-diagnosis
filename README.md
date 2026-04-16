@@ -64,8 +64,10 @@ ict-diagnosis/
 │       ├── App.vue
 │       ├── api/diagnosis.js
 │       └── views/
-│           ├── ChatView.vue    # 对话式信息收集页
-│           └── ReportView.vue  # 诊断报告展示页
+│           ├── ChatView.vue      # 对话式信息收集页
+│           ├── BpmLookupView.vue    # 按 BPM 查询历史诊断
+│           ├── TraceabilityView.vue # 填报溯源（字段 + 对话快照）
+│           └── ReportView.vue       # 诊断报告展示页
 └── data/
     └── diagnosis.db            # SQLite 数据库（自动生成）
 ```
@@ -79,6 +81,8 @@ ict-diagnosis/
 | POST | `/api/chat` | 对话，返回AI回复和提取字段 |
 | POST | `/api/confirm` | 用户确认字段，提交诊断 |
 | GET  | `/api/diagnose/{id}` | 获取历史诊断报告 |
+| GET  | `/api/diagnose/by-bpm?bpm_id=` | 按 BPM 商机编码列出历史诊断摘要（可多条） |
+| GET  | `/api/diagnose/{id}/traceability` | 填报溯源：确认字段 + 对话快照（不写入报告正文） |
 | GET  | `/api/report/{id}/html` | 获取HTML格式报告 |
 | GET  | `/api/report/{id}/pdf` | 下载PDF报告 |
 | GET  | `/api/health` | 健康检查 |
@@ -113,6 +117,6 @@ pip install weasyprint
 ## 注意事项
 
 - `.env` 文件含 DeepSeek API Key，请勿提交到 Git
-- `data/diagnosis.db` 为诊断留痕数据库，请定期备份
+- `data/diagnosis.db` 为诊断留痕数据库，请定期备份；每条诊断含提交时的结构化字段（`input_json`）与对话快照（`chat_snapshot_json`），可通过 `GET /api/diagnose/{id}/traceability` 或前端「填报溯源」查询，**不写入合规报告正文**
 - 当前为本地开发版本，生产部署需收紧 CORS 设置
 - 规则版本号记录在每条诊断记录中，便于审计追溯
