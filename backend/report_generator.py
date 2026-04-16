@@ -34,16 +34,17 @@ def _render_rule_card(
             <span class="hrt-desc">{hrt_cfg['desc']}</span>
         </div>'''
 
-    # 条款原文
+    # 条款原文（单行拼接，避免 PDF 中 section-body 误用 pre-wrap 时把缩进换行当空白拉大间距）
     clauses_html = ""
     for src in rule.get("clause_sources", []):
         doc_code = src.get("doc_code", "")
         code_part = f"（{doc_code}）" if doc_code and "【" not in doc_code else ""
-        clauses_html += f'''
-        <div class="clause-item">
-            <div class="clause-source">📄 {src.get("doc_name", "")}{code_part}</div>
-            <div class="clause-text">{src.get("text", "")}</div>
-        </div>'''
+        clauses_html += (
+            f'<div class="clause-item">'
+            f'<div class="clause-source">📄 {src.get("doc_name", "")}{code_part}</div>'
+            f'<div class="clause-text">{src.get("text", "")}</div>'
+            f"</div>"
+        )
 
     # 审计材料（版式与条款引用框一致：浅底 + 左竖线 + 行内 ☐ 对齐）
     mats_html = ""
@@ -81,19 +82,19 @@ def _render_rule_card(
         </div>
         <div class="rule-section">
             <div class="section-title">⚠️ 风险分析</div>
-            <div class="section-body">{risk_desc}</div>
+            <div class="section-body section-body-pre">{risk_desc}</div>
         </div>
         <div class="rule-section highlight-section">
             <div class="section-title">🔧 整改建议</div>
-            <div class="section-body">{remediation}</div>
+            <div class="section-body section-body-pre">{remediation}</div>
         </div>
-        <div class="rule-section">
+        <div class="rule-section clause-section">
             <div class="section-title">📖 条款依据</div>
             <div class="section-body">{clauses_html if clauses_html else '<span class="muted">暂无条款原文</span>'}</div>
         </div>
         <div class="rule-section optimize-section">
             <div class="section-title">🚀 模式优化方向</div>
-            <div class="section-body">{optimization}</div>
+            <div class="section-body section-body-pre">{optimization}</div>
         </div>
         {f'<div class="rule-section audit-materials-section"><div class="section-title">📁 本风险点相关审计材料</div><div class="section-body"><div class="audit-mats">{mats_html}</div></div></div>' if mats_html else ""}
     </div>'''
@@ -124,7 +125,7 @@ def _render_segment(
                 <span class="rule-name">{tip['rule_name']}</span>
             </div>
             <div class="rule-section">
-                <div class="section-body">{tip.get("ai_remediation") or tip.get("remediation", "")}</div>
+                <div class="section-body section-body-pre">{tip.get("ai_remediation") or tip.get("remediation", "")}</div>
             </div>
         </div>'''
         return f'<div class="section-heading tips-heading">操作提示 <span class="heading-sub">（不计入风险等级）</span></div>{tips_html}'
@@ -225,7 +226,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
                 <span class="rule-name">{tip['rule_name']}</span>
             </div>
             <div class="rule-section">
-                <div class="section-body">{tip.get('ai_remediation') or tip.get('remediation', '')}</div>
+                <div class="section-body section-body-pre">{tip.get('ai_remediation') or tip.get('remediation', '')}</div>
             </div>
         </div>"""
 
@@ -241,15 +242,52 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
         + _disclaimer_tail
     )
 
-    checklist_inner = (
-        "".join(
-            f'<div class="checklist-item"><span class="mat-checkbox">☐</span><div><strong>{m["item"]}</strong>'
-            f'<div class="mat-purpose">{m["purpose"]}</div></div></div>'
-            for m in checklist
-        )
-        if checklist
-        else '<p style="color:#94a3b8">无需特别准备，保持常规过程留痕即可。</p>'
-    )
+    # 按风险等级分组渲染审计清单（建议一+二+三）
+    def _render_checklist_html(checklist: list) -> str:
+        if not checklist:
+            return '<p style="color:#94a3b8">无需特别准备，保持常规过程留痕即可。</p>'
+        groups = [
+            ("high",   "🔴 高风险相关材料（必须准备）",   "#fef2f2", "#fca5a5", "#991b1b"),
+            ("medium", "🟡 中风险相关材料（建议准备）",   "#fffbeb", "#fcd34d", "#92400e"),
+            ("low",    "🟢 低风险相关材料（视情况准备）", "#f0fdf4", "#86efac", "#166534"),
+            ("tip",    "📋 操作提示相关材料",             "#eff6ff", "#93c5fd", "#1e40af"),
+        ]
+        html = ""
+        for level_key, level_label, bg, border, text_color in groups:
+            items = [m for m in checklist if m.get("risk_level") == level_key]
+            if not items:
+                continue
+            rows = ""
+            for m in items:
+                # 合并用途（多条）
+                purposes = m.get("purposes") or ([m["purpose"]] if m.get("purpose") else [])
+                purpose_html = "；".join(purposes)
+                # 来源规则标签
+                rule_ids = m.get("rule_ids", [])
+                rule_names = m.get("rule_names", [])
+                source_tags = "".join(
+                    f'<span class="cl-rule-tag" title="{rule_names[i] if i < len(rule_names) else ""}">'
+                    f'{rid}</span>'
+                    for i, rid in enumerate(rule_ids)
+                )
+                rows += (
+                    f'<div class="checklist-item">'
+                    f'<span class="mat-checkbox">☐</span>'
+                    f'<div class="cl-item-body">'
+                    f'<div class="cl-item-top"><strong>{m["item"]}</strong>'
+                    f'<span class="cl-sources">{source_tags}</span></div>'
+                    f'<div class="mat-purpose">{purpose_html}</div>'
+                    f'</div></div>'
+                )
+            html += (
+                f'<div class="cl-group" style="border-color:{border};background:{bg}">'
+                f'<div class="cl-group-title" style="color:{text_color}">{level_label}</div>'
+                f'{rows}'
+                f'</div>'
+            )
+        return html
+
+    checklist_inner = _render_checklist_html(checklist)
 
     seg_note = " · 已按业务板块分节分析" if segments else ""
     overall_summary_line = (
@@ -285,7 +323,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
 <title>ICT项目合规诊断报告 — {bpm_id}</title>
 <style>
   /* 与产品稿对齐：主字色 #333、次级 #4b5563、条款链接 #315efb、引用底 #f4f7fb */
-  /* PDF：A4 分页 + 版心（与网页 max-width 880px 视觉接近，但按纸张宽度自适应，避免整页被缩成窄条） */
+  /* PDF：WeasyPrint 与浏览器布局引擎不同：flex 的 gap、外边距折叠、分页会与网页略有差异。 */
+  /* 版心与前端 ReportView.report-content 一致（max-width: 880px 居中），块间距尽量与 Vue 同源数值对齐。 */
   @page {{
     size: A4;
     margin: 12mm 14mm;
@@ -293,7 +332,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html {{ background: #fff; }}
   body {{
-    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-family: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     background: #fff;
     color: #333333;
     font-size: 14px;
@@ -301,7 +340,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     -webkit-font-smoothing: antialiased;
   }}
   .page {{
-    max-width: 100%;
+    max-width: 880px;
     width: 100%;
     margin: 0 auto;
     padding: 0 0 24px;
@@ -374,13 +413,15 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     font-weight: 500;
   }}
 
-  /* 高风险子类型横幅 */
+  /* 高风险子类型横幅（短条，尽量整段在同一页） */
   .hrt-banner {{
     display: flex;
     align-items: center;
     gap: 14px;
     padding: 9px 20px;
     font-size: 13px;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }}
   .hrt-label {{
     font-weight: 800;
@@ -393,12 +434,16 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     font-size: 12px;
   }}
 
-  /* 业务板块 */
+  /* 业务板块（与 ReportView .segment-block 一致） */
+  /* PDF：勿用 overflow:hidden，WeasyPrint 跨页时会裁切后续碎片 */
   .segment-block {{
+    background: #fff;
     margin-bottom: 28px;
     border-radius: 14px;
-    overflow: hidden;
+    overflow: visible;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }}
   .segment-header {{
     display: flex;
@@ -440,12 +485,15 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     color: #16a34a;
     font-size: 14px;
   }}
+  /* 使用 block 布局利于长文档分页；卡片间距已由相邻兄弟 margin 控制 */
   .segment-rules-container {{
     padding: 12px;
     background: #f8fafc;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: block;
+  }}
+  /* WeasyPrint 对 flex gap 支持不完整时，间距会塌；用相邻兄弟 margin 与网页 gap:10px 对齐 */
+  .segment-rules-container .rule-card + .rule-card {{
+    margin-top: 10px;
   }}
   .segment-rules-container .rule-card {{
     border-radius: 10px !important;
@@ -472,14 +520,18 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .highlight-section {{ background: #fffbeb; }}
   .optimize-section {{ background: #f0fdf4; }}
 
-  /* 规则卡片 */
+  /* 规则卡片（平铺模式 margin-bottom 与 ReportView .rule-card 一致：12px） */
   .rule-card {{
     background: #fff;
     border-radius: 12px;
     border: 1px solid #e2e8f0;
-    margin-bottom: 16px;
-    overflow: hidden;
+    margin-bottom: 12px;
+    overflow: visible;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    break-inside: auto;
+    page-break-inside: auto;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }}
   .rule-header {{
     padding: 14px 20px;
@@ -503,9 +555,14 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .tip-badge {{ background: #2563eb; }}
   .rule-id {{ font-size: 12px; color: #94a3b8; font-family: monospace; }}
   .rule-name {{ font-size: 15px; font-weight: 600; color: #333333; }}
-  .rule-section {{ padding: 16px 20px; border-bottom: 1px solid #f1f5f9; }}
+  .rule-section {{
+    padding: 16px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    break-inside: auto;
+    page-break-inside: auto;
+  }}
   .rule-section:last-child {{ border-bottom: none; }}
-  /* 卡片内小节标题（风险分析 / 条款依据 等），不用 uppercase 以免中文异常 */
+  /* 卡片内小节标题（风险分析 / 条款依据 等） */
   .section-title {{
     font-size: 13px;
     font-weight: 700;
@@ -513,30 +570,44 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     text-transform: none;
     letter-spacing: 0.02em;
     margin-bottom: 10px;
+    break-after: avoid;
+    page-break-after: avoid;
   }}
-  .section-body {{ color: #4b5563; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }}
+  /* 默认：普通流式排版；勿对整段 body 使用 pre-wrap，否则子块间换行缩进会被当成空白，条款依据会「拉得极开」 */
+  .section-body {{ color: #4b5563; line-height: 1.6; font-size: 14px; white-space: normal; }}
+  .section-body-pre {{
+    white-space: pre-wrap;
+    orphans: 2;
+    widows: 2;
+  }}
+  /* 条款依据：标题与引用框收紧 */
+  .clause-section .section-title {{ margin-bottom: 6px; }}
+  .clause-section .section-body {{ padding-top: 0; }}
   .muted {{ color: #94a3b8; font-style: italic; }}
   .highlight-section {{ background: #fffbeb !important; }}
   .optimize-section {{ background: #f0fdf4 !important; }}
 
-  /* 条款原文：文档标题蓝 + 浅灰蓝引用框 */
-  .clause-item {{ margin-bottom: 16px; }}
+  .clause-item {{ margin-bottom: 10px; }}
   .clause-item:last-child {{ margin-bottom: 0; }}
+  /* 蓝标题与下方引用框不断开；长条文仍在 .clause-text 内正常跨页 */
   .clause-source {{
     font-size: 13px;
     color: #315efb;
     font-weight: 600;
-    margin-bottom: 8px;
-    line-height: 1.5;
+    margin-bottom: 4px;
+    line-height: 1.35;
+    break-after: avoid;
+    page-break-after: avoid;
   }}
   .clause-text {{
     background: #f4f7fb;
     border-left: 3px solid #cbd5e1;
-    padding: 14px 16px;
+    padding: 10px 12px;
     border-radius: 6px;
     font-size: 14px;
     color: #4b5563;
-    line-height: 1.6;
+    line-height: 1.55;
+    overflow: visible;
   }}
 
   /* 规则内：本风险点相关审计材料（与条款 clause-text 同系色） */
@@ -546,6 +617,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     border-left: 3px solid #cbd5e1;
     border-radius: 6px;
     padding: 12px 14px;
+    overflow: visible;
+    break-inside: auto;
+    page-break-inside: auto;
   }}
   .audit-item {{
     display: flex;
@@ -556,6 +630,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     color: #4b5563;
     line-height: 1.6;
     border-bottom: 1px solid #e2e8f0;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }}
   .audit-item:first-child {{ padding-top: 0; }}
   .audit-item:last-child {{ border-bottom: none; padding-bottom: 0; }}
@@ -566,16 +642,21 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .audit-purpose {{ color: #6b7280; }}
   .tip-card {{ border-left: 4px solid #2563eb !important; }}
 
-  /* 审计清单 */
+  /* 审计清单（与 ReportView .checklist-card：padding 12px 16px） */
   .checklist-box {{
     background: #fff;
     border-radius: 12px;
     border: 1px solid #e2e8f0;
-    padding: 6px 20px;
+    padding: 12px 16px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    overflow: visible;
+    break-inside: auto;
+    page-break-inside: auto;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }}
   .checklist-item {{
-    padding: 10px 0;
+    padding: 9px 0;
     border-bottom: 1px solid #f1f5f9;
     font-size: 14px;
     display: flex;
@@ -585,6 +666,41 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .checklist-item:last-child {{ border-bottom: none; }}
   .mat-checkbox {{ color: #94a3b8; flex-shrink: 0; margin-top: 2px; }}
   .mat-purpose {{ color: #6b7280; font-size: 12px; margin-top: 2px; line-height: 1.5; }}
+  /* 分组 */
+  .cl-group {{
+    border: 1px solid;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    overflow: visible;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }}
+  .cl-group:last-child {{ margin-bottom: 0; }}
+  .cl-group-title {{
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 14px;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+  }}
+  .cl-group .checklist-item {{
+    padding: 9px 14px;
+    margin: 0;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }}
+  .cl-group .checklist-item:last-child {{ border-bottom: none; }}
+  .cl-item-body {{ flex: 1; min-width: 0; }}
+  .cl-item-top {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+  .cl-sources {{ display: flex; gap: 4px; flex-wrap: wrap; margin-left: 4px; }}
+  .cl-rule-tag {{
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    color: #475569;
+    font-family: monospace;
+    cursor: default;
+    border: 1px solid #e2e8f0;
+  }}
 
   /* 免责声明 */
   .disclaimer {{
@@ -599,7 +715,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   }}
   @media print {{
     body {{ background: #fff; }}
-    .page {{ padding: 0 0 16px; max-width: 100%; }}
+    .page {{ padding: 0 0 16px; max-width: 880px; margin: 0 auto; }}
   }}
 </style>
 </head>

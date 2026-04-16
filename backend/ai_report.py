@@ -14,6 +14,8 @@ import re
 import httpx
 from dotenv import load_dotenv
 
+from ai_chat import migrate_legacy_service_fields
+
 load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -74,7 +76,17 @@ FIELD_VALUE_LABELS = {
         "telecom_controlled": "是（电信采购-仓储-交付）",
         "supplier_direct": "否（供应商直发客户）",
     },
-    "service_by_telecom": {"yes": "是", "no": "否", "mixed": "混合"},
+    "service_delivery_mode": {
+        "all_telecom": "全部自有团队",
+        "mixed": "混合（自有+外包）",
+        "all_external": "全部外包/供应商执行",
+    },
+    "service_capability_level": {
+        "strong": "强（N1-N6全部具备，有充分留痕）",
+        "medium": "中（N1-N6大部分具备，部分需补充）",
+        "weak": "弱（仅具备1-3项，难以全额列收）",
+        "none": "无（无法举证任何六必要能力）",
+    },
     "service_period": {
         "lte_3m": "≤3个月",
         "3m_12m": "3-12个月",
@@ -87,7 +99,7 @@ FIELD_LABELS = {
     "project_type": "项目类型",
     "customer_type": "前向客户类型",
     "supplier_confirmed": "后向供应商是否已确定",
-    "procurement_method": "采购方式",
+    "procurement_method": "后向采购方式",
     "related_party": "前后向是否存在关联关系",
     "gross_margin": "毛利率估算",
     "revenue_recognition": "收入确认方式",
@@ -99,7 +111,8 @@ FIELD_LABELS = {
     "scheme_reviewed": "方案是否经过中台把关/评审",
     "hardware_construction": "是否含硬件/施工类内容",
     "logistics_control": "物流是否由电信主控",
-    "service_by_telecom": "服务交付是否由电信自有团队执行",
+    "service_delivery_mode": "服务交付是否由电信自有团队执行",
+    "service_capability_level": "电信自有服务能力等级（六必要，系统依据交付模式推导）",
     "service_period": "服务周期",
     "has_prepayment": "是否含预付款",
     "has_advance_funding": "是否存在电信垫资",
@@ -121,6 +134,8 @@ def _field_to_chinese(key: str, val) -> str:
 
 def build_project_summary(fields: dict, chat_history: list[dict] | None = None) -> str:
     """将结构化字段 + 对话历史拼成项目描述文本，供 AI 参考"""
+    fields = dict(fields or {})
+    migrate_legacy_service_fields(fields)
     lines = ["【项目基本信息（结构化字段）】"]
     for key, label in FIELD_LABELS.items():
         val = fields.get(key)
@@ -189,7 +204,7 @@ async def _call_deepseek(prompt: str, system: str) -> str:
 ANALYSIS_SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规顾问，擅长结合具体项目情况给出有针对性的合规分析。
 
 你的分析必须：
-1. 结合项目的具体信息（客户类型、采购方式、毛利率、能力情况等），而不是泛泛而谈
+1. 结合项目的具体信息（前向客户类型、后向采购方式、毛利率、能力情况等），而不是泛泛而谈
 2. 使用第二人称"您的项目"、"该项目"，让分析有代入感
 3. 措辞专业但易懂，避免过于学术化
 4. 每段分析控制在100-200字，简洁有力

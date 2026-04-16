@@ -1,5 +1,5 @@
 {
-  "version": "v1.1",
+  "version": "v1.3",
   "rules": [
     {
       "id": "R01",
@@ -129,46 +129,6 @@
       "high_risk_type": "no_revenue"
     },
     {
-      "id": "R04",
-      "layer": 1,
-      "name": "工程类收入混入产数",
-      "trigger": {
-        "logic": "AND",
-        "conditions": [
-          {
-            "field": "hardware_construction",
-            "operator": "eq",
-            "value": true
-          }
-        ]
-      },
-      "risk_level": "high",
-      "risk_description": "项目含土建、布线、管道施工等工程类内容，该部分不可列入ICT产数业绩。细化判定（财务确认）：①自有人员实施→可列固网其他收入（🟡中风险）；②外包/供应商实施→仅差额列收（差额=含税收入-含税成本）；③包装为ICT服务收入→违规列收（参见R25）。",
-      "remediation": "将工程类内容从ICT服务收入中剥离。如为自有人员实施，可列入固网其他收入（须提供出勤记录、施工日志、现场照片）；如为外包实施，只能按含税差额列收；严禁包装为ICT服务收入。",
-      "clause_id": "clause_R04",
-      "optimization_direction": "将项目拆分为ICT服务部分和工程部分分别列收，确保收入归属正确。工程部分如有自有人员实施可列固网其他。",
-      "audit_materials": [
-        {
-          "item": "合同中服务内容说明",
-          "purpose": "区分ICT服务与工程内容"
-        },
-        {
-          "item": "实际交付清单",
-          "purpose": "明确区分设备、服务与工程部分"
-        },
-        {
-          "item": "财务分类明细",
-          "purpose": "证明收入归属正确"
-        }
-      ],
-      "applies_to": [
-        "system_integration",
-        "software_development",
-        "service"
-      ],
-      "high_risk_type": "no_revenue"
-    },
-    {
       "id": "R05",
       "layer": 1,
       "name": "十个不准（任一条）",
@@ -177,7 +137,7 @@
         "conditions": []
       },
       "risk_level": "high",
-      "risk_description": "综合性规则——集团「十个不准」中任意一条被触发即为高风险。各子条款已分别体现在R01-R04、R09、R12、R13等规则中。本规则提醒用户对照附录一完整条款逐条自查。",
+      "risk_description": "综合性规则——集团「十个不准」中任意一条被触发即为高风险。各子条款已分别体现在R01-R03、R09、R12、R13等规则中。本规则提醒用户对照附录一完整条款逐条自查。",
       "remediation": "对照「十个不准」完整条款逐条自查：①不准背离主业；②不准参与无商业目的贸易；③不准增加不必要交易环节；④不准融资性贸易；⑤不准无控制权空转走单；⑥不准循环贸易；⑦不准三流不齐备；⑧不准非标仓单交易；⑨不准代理行为全额列收；⑩不准缺乏内控。",
       "clause_id": "clause_R05",
       "optimization_direction": "确保项目具备商业实质、电信拥有控制权、不存在关联关系空转等问题。",
@@ -521,7 +481,7 @@
       "risk_description": "满足以下条件中≥2条，符合「过手项目」风险特征：①前后向合同内容高度一致；②无自有能力融入；③毛利率≤5%；④甲方单一来源指定；⑤无售中实施佐证（方案未经评审）。",
       "remediation": "逐条化解触发条件：补充电信自主增值服务证明、确保前后向合同内容有实质差异、提供实施过程佐证。无法化解则差额列收或放弃。",
       "clause_id": "clause_R12",
-      "optimization_direction": "逐项突破：①合同中增加电信侧服务内容使前后向差异化；②融入自有产品提升能力占比；③通过方案评审确保有实施留痕。",
+      "optimization_direction": "逐项突破：①合同中增加电信侧服务内容使前后向差异化；②融入自有产品/人员提升能力占比；③通过方案评审确保有实施留痕。",
       "audit_materials": [
         {
           "item": "前后向合同对比分析",
@@ -877,16 +837,13 @@
           },
           {
             "field": "capability_ratio",
-            "operator": "in",
-            "value": [
-              "all_external",
-              "very_low"
-            ]
+            "operator": "eq",
+            "value": "very_low"
           }
         ]
       },
       "risk_level": "medium",
-      "risk_description": "电信为代理人：仅撮合/转包、无实质控制权、定价权在供应商。仅可确认净额（手续费/服务费），不得全额列收。",
+      "risk_description": "电信无自有产品融入，自有能力占比极低（非零但不足）。电信为代理人，仅可确认净额（手续费/服务费），不得全额列收。",
       "remediation": "按差额法确认收入（含税计算），仅列收手续费或服务费部分。准备差额列收计算说明。",
       "clause_id": "clause_R22",
       "optimization_direction": "从代理人向主要责任人转型：融入自有能力、建立定价权、承担交付风险。",
@@ -1200,6 +1157,141 @@
         "all"
       ],
       "high_risk_type": "forbidden"
+    },
+    {
+      "id": "R31",
+      "layer": 2,
+      "name": "服务类：主要责任人资格存疑（六必要缺失）",
+      "applies_to": [
+        "service"
+      ],
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "service_delivery_mode",
+            "operator": "eq",
+            "value": "all_external"
+          }
+        ]
+      },
+      "risk_level": "high",
+      "high_risk_type": "no_revenue",
+      "risk_description": "服务交付全部由外部供应商执行，电信无自有人员参与。按《企业会计准则第14号》，电信在该项目中定性为「代理人」而非「主要责任人」，不得全额列收，应差额列收（净额法）。如需维持全额列收，须举证六必要自有能力（N1规划·N2资源·N3技术·N4管控·N5资质·N6交付责任），否则应调整为差额列收路径。",
+      "remediation": "差额列收路径：确认含税收入与含税成本，以差额部分列收。\n全额列收路径（需举证）：\nN1 电信主导服务方案设计，有方案文件及评审记录；\nN2 有自有人员参与交付（出勤表、工作日志、驻场协议）；\nN3 电信提供专有技术、平台或工具；\nN4 电信对供应商有考核/验收权，有例会纪要和签收记录；\nN5 电信凭自身资质参与投标，有资质证书和投标文件；\nN6 合同中电信对客户承担连带或兜底责任。",
+      "optimization_direction": "建议在合同和项目管理层面前置固化六必要证据：\n将电信自有服务内容独立成章写入合同；\n安排至少1名自有人员担任项目经理并保持交付全程留痕；\n以电信平台（云、网、安全等）作为服务载体，形成实质性增值。",
+      "clause_id": "clause_R31",
+      "audit_materials": [
+        {
+          "item": "服务方案及评审记录",
+          "purpose": "证明N1自有规划能力"
+        },
+        {
+          "item": "自有人员出勤表/驻场协议",
+          "purpose": "证明N2自有资源投入"
+        },
+        {
+          "item": "月度例会纪要及供应商考核记录",
+          "purpose": "证明N4自有项目管控"
+        },
+        {
+          "item": "投标文件及资质证书",
+          "purpose": "证明N5自有资质参与"
+        },
+        {
+          "item": "合同中电信责任条款说明",
+          "purpose": "证明N6自有交付责任"
+        }
+      ]
+    },
+    {
+      "id": "R32",
+      "layer": 2,
+      "name": "服务类：混合交付+低毛利（主要责任人存疑）",
+      "applies_to": [
+        "service"
+      ],
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "service_delivery_mode",
+            "operator": "eq",
+            "value": "mixed"
+          },
+          {
+            "field": "gross_margin",
+            "operator": "in",
+            "value": [
+              "lte_0",
+              "lte_3",
+              "pct_4_5"
+            ]
+          }
+        ]
+      },
+      "risk_level": "high",
+      "high_risk_type": "no_revenue",
+      "risk_description": "混合交付（自有+外包）且毛利率≤5%。低毛利说明电信对最终定价无主导权（C3存疑），极难覆盖自有人员的实质性投入成本，无法自证「主要责任人」身份，应差额列收。",
+      "remediation": "差额列收路径：以含税收入-含税成本的差额部分列收。\n若坚持全额列收，须举证以下材料：\n· 自有人员出勤记录及项目经理任命文件（证明N2资源投入）\n· 电信对供应商的验收签收单及例会纪要（证明N4管控责任）\n· 合同中电信对客户承担责任的条款说明（证明N6交付责任）\n· 定价主导权说明（证明C3，即毛利来源合理性）",
+      "optimization_direction": "将电信云/网/安全等自有产品嵌入服务内容，使自有能力由「弱」升至「中」，同时拉高毛利率至6%以上，彻底摆脱代理人认定风险。",
+      "clause_id": "clause_R32",
+      "audit_materials": [
+        {
+          "item": "自有人员与外包人员分工说明",
+          "purpose": "证明混合交付中电信的主导地位"
+        },
+        {
+          "item": "电信侧项目经理任命文件",
+          "purpose": "证明管控责任在电信"
+        },
+        {
+          "item": "成本明细表（区分自有/外采）",
+          "purpose": "核实自有投入比例和毛利来源"
+        },
+        {
+          "item": "供应商验收单及签收记录",
+          "purpose": "证明电信对供应商有验收权"
+        }
+      ]
+    },
+    {
+      "id": "R34",
+      "layer": 2,
+      "name": "服务类：混合交付（主要责任人需举证）",
+      "applies_to": [
+        "service"
+      ],
+      "trigger": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "field": "service_delivery_mode",
+            "operator": "eq",
+            "value": "mixed"
+          }
+        ]
+      },
+      "risk_level": "medium",
+      "high_risk_type": null,
+      "risk_description": "服务交付为混合模式（自有+外包），电信须额外举证自己是「主要责任人」而非「代理人」。凡有外包参与，均需保留自有人员参与的过程证明，否则存在被要求差额列收的风险。",
+      "remediation": "准备以下材料证明电信为主要责任人：\n· 自有人员出勤记录及项目经理任命文件\n· 电信对供应商的验收签收单及例会纪要\n· 合同中电信对客户承担责任的条款说明",
+      "optimization_direction": "提升自有人员参与比例，或引入电信自有平台/工具作为服务载体，使主要责任人身份有更充分的依据。",
+      "clause_id": "clause_R34",
+      "audit_materials": [
+        {
+          "item": "自有人员出勤记录及项目经理任命文件",
+          "purpose": "证明电信有实质性资源投入"
+        },
+        {
+          "item": "供应商验收签收单及例会纪要",
+          "purpose": "证明电信对供应商有管控权"
+        },
+        {
+          "item": "合同中电信责任条款说明",
+          "purpose": "证明电信对客户承担主要交付责任"
+        }
+      ]
     }
   ]
 }

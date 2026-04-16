@@ -12,8 +12,66 @@
       <div class="topbar-actions">
         <a :href="`/api/report/${diagnosisId}/pdf`" class="action-btn pdf-btn">⬇ 下载报告</a>
         <button class="action-btn share-btn" @click="copyLink">{{ copied ? '✅ 已复制' : '🔗 复制链接' }}</button>
+        <button class="action-btn review-btn" @click="openReview">📝 标注复核结论</button>
       </div>
     </div>
+
+    <!-- 人工复核弹窗（规格 §7） -->
+    <div v-if="reviewModal" class="modal-mask" @click.self="reviewModal = false">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span class="modal-title">标注复核结论</span>
+          <button class="modal-close" @click="reviewModal = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label class="form-label">复核人（选填）</label>
+            <input v-model="reviewForm.reviewer_id" class="form-input" placeholder="姓名或工号" />
+          </div>
+          <div class="form-row">
+            <label class="form-label">复核结论 <span class="required">*</span></label>
+            <div class="radio-group">
+              <label class="radio-item" :class="reviewForm.review_result === 'confirmed' ? 'radio-active-green' : ''">
+                <input type="radio" v-model="reviewForm.review_result" value="confirmed" />
+                ✅ 与工具结论一致
+              </label>
+              <label class="radio-item" :class="reviewForm.review_result === 'partial' ? 'radio-active-yellow' : ''">
+                <input type="radio" v-model="reviewForm.review_result" value="partial" />
+                ⚠️ 部分采纳
+              </label>
+              <label class="radio-item" :class="reviewForm.review_result === 'overridden' ? 'radio-active-red' : ''">
+                <input type="radio" v-model="reviewForm.review_result" value="overridden" />
+                ❌ 人工推翻
+              </label>
+            </div>
+          </div>
+          <div v-if="reviewForm.review_result !== 'confirmed'" class="form-row">
+            <label class="form-label">被推翻/部分采纳的风险点（选填，逗号分隔规则ID）</label>
+            <input v-model="reviewRiskIds" class="form-input" placeholder="如 R01, R05" />
+          </div>
+          <div v-if="reviewForm.review_result !== 'confirmed'" class="form-row">
+            <label class="form-label">人工最终结论 <span class="required">*</span></label>
+            <textarea v-model="reviewForm.manual_conclusion" class="form-textarea" rows="3"
+              placeholder="请描述人工审核后的最终判断结论"></textarea>
+          </div>
+          <div v-if="reviewForm.review_result === 'overridden'" class="form-row">
+            <label class="form-label">推翻原因 <span class="required">*</span></label>
+            <textarea v-model="reviewForm.override_reason" class="form-textarea" rows="3"
+              placeholder="请说明工具判断有误的原因，及依据的条款或实际情况"></textarea>
+          </div>
+          <div v-if="reviewError" class="form-error">{{ reviewError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-cancel" @click="reviewModal = false">取消</button>
+          <button class="modal-submit" :disabled="reviewSubmitting" @click="submitReviewForm">
+            {{ reviewSubmitting ? '提交中...' : '提交复核结论' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 复核成功提示 -->
+    <div v-if="reviewSuccess" class="review-toast">✅ 复核结论已提交，感谢标注！</div>
 
     <!-- 加载中 -->
     <div v-if="loading" class="loading-screen">
@@ -108,7 +166,7 @@
 
             <!-- 板块规则列表（与后端 HTML 报告同结构的浅灰底容器） -->
             <div v-else class="segment-rules-container">
-            <div v-for="rule in seg.triggered_rules" :key="rule.rule_id" class="rule-card">
+            <div v-for="rule in seg.triggered_rules" :key="rule.rule_id" class="rule-card" :id="`rule-${rule.rule_id}`">
               <!-- 高风险子类型横幅 -->
               <div v-if="rule.risk_level === 'high' && rule.high_risk_type"
                    class="hrt-banner"
@@ -148,7 +206,7 @@
           <div class="section-heading">风险详情分析
             <span v-if="data.ai_enriched" class="heading-ai-tag">✨ AI个性化</span>
           </div>
-          <div v-for="rule in data.triggered_rules" :key="rule.rule_id" class="rule-card">
+          <div v-for="rule in data.triggered_rules" :key="rule.rule_id" class="rule-card" :id="`rule-${rule.rule_id}`">
             <div v-if="rule.risk_level === 'high' && rule.high_risk_type"
                  class="hrt-banner" :class="`hrt-${rule.high_risk_type}`">
               <span class="hrt-label">{{ hrtConfig[rule.high_risk_type]?.label }}</span>
@@ -197,15 +255,26 @@
       <!-- 审计材料总清单 -->
       <div class="section-heading">审计资料必备清单</div>
       <div class="checklist-card">
-        <div v-if="data.audit_checklist?.length">
-          <div v-for="mat in data.audit_checklist" :key="mat.item" class="checklist-item">
-            <input type="checkbox" class="mat-check" :id="`mat-${mat.item}`">
-            <label :for="`mat-${mat.item}`">
-              <strong>{{ mat.item }}</strong>
-              <span class="mat-purpose">{{ mat.purpose }}</span>
-            </label>
+        <template v-if="data.audit_checklist?.length">
+          <div v-for="group in checklistGroups" :key="group.level" class="cl-group" :class="`cl-group-${group.level}`">
+            <div class="cl-group-title">{{ group.label }}</div>
+            <div v-for="mat in group.items" :key="mat.item" class="checklist-item">
+              <input type="checkbox" class="mat-check" :id="`mat-${mat.item}`">
+              <div class="cl-item-body">
+                <div class="cl-item-top">
+                  <label :for="`mat-${mat.item}`"><strong>{{ mat.item }}</strong></label>
+                  <span class="cl-sources">
+                    <span v-for="(rid, i) in (mat.rule_ids || [])" :key="rid"
+                          class="cl-rule-tag"
+                          :title="mat.rule_names?.[i] || ''"
+                          @click="scrollToRule(rid)">{{ rid }}</span>
+                  </span>
+                </div>
+                <div class="mat-purpose">{{ (mat.purposes || [mat.purpose]).join('；') }}</div>
+              </div>
+            </div>
           </div>
-        </div>
+        </template>
         <div v-else class="no-mat">无需特别准备，保持常规过程留痕即可。</div>
       </div>
 
@@ -223,7 +292,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, defineComponent, h } from 'vue'
 import { useRoute } from 'vue-router'
-import { getDiagnosis } from '../api/diagnosis.js'
+import { getDiagnosis, submitReview } from '../api/diagnosis.js'
 
 // ── 规则体子组件（内联定义，避免单独文件）──
 const RuleBody = defineComponent({
@@ -330,6 +399,27 @@ const totalTips = computed(() => {
   return data.value.tips?.length || 0
 })
 
+// 审计清单按风险等级分组（建议二）
+const CHECKLIST_GROUP_CONFIG = [
+  { level: 'high',   label: '🔴 高风险相关材料（必须准备）' },
+  { level: 'medium', label: '🟡 中风险相关材料（建议准备）' },
+  { level: 'low',    label: '🟢 低风险相关材料（视情况准备）' },
+  { level: 'tip',    label: '📋 操作提示相关材料' },
+]
+
+const checklistGroups = computed(() => {
+  const list = data.value.audit_checklist || []
+  return CHECKLIST_GROUP_CONFIG
+    .map(g => ({ ...g, items: list.filter(m => m.risk_level === g.level) }))
+    .filter(g => g.items.length > 0)
+})
+
+// 点击规则来源标签，滚动到对应风险卡片（建议三）
+function scrollToRule(ruleId) {
+  const el = document.getElementById(`rule-${ruleId}`)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
 function toggleRule(key) {
   expanded[key] = !expanded[key]
 }
@@ -338,6 +428,65 @@ function copyLink() {
   navigator.clipboard.writeText(window.location.href)
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
+}
+
+// ── 人工复核（规格 §7）──────────────────────────────────────
+const reviewModal = ref(false)
+const reviewSubmitting = ref(false)
+const reviewSuccess = ref(false)
+const reviewError = ref('')
+const reviewRiskIds = ref('')
+const reviewForm = reactive({
+  reviewer_id: '',
+  review_result: 'confirmed',
+  manual_conclusion: '',
+  override_reason: '',
+})
+
+function openReview() {
+  reviewForm.reviewer_id = ''
+  reviewForm.review_result = 'confirmed'
+  reviewForm.manual_conclusion = ''
+  reviewForm.override_reason = ''
+  reviewRiskIds.value = ''
+  reviewError.value = ''
+  reviewModal.value = true
+}
+
+async function submitReviewForm() {
+  reviewError.value = ''
+  if (!reviewForm.review_result) {
+    reviewError.value = '请选择复核结论'
+    return
+  }
+  if (reviewForm.review_result !== 'confirmed' && !reviewForm.manual_conclusion.trim()) {
+    reviewError.value = '请填写人工最终结论'
+    return
+  }
+  if (reviewForm.review_result === 'overridden' && !reviewForm.override_reason.trim()) {
+    reviewError.value = '推翻时需填写推翻原因'
+    return
+  }
+  reviewSubmitting.value = true
+  try {
+    const riskIds = reviewRiskIds.value
+      ? reviewRiskIds.value.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+    await submitReview(diagnosisId, {
+      reviewer_id: reviewForm.reviewer_id || undefined,
+      review_result: reviewForm.review_result,
+      risk_point_ids: riskIds,
+      manual_conclusion: reviewForm.manual_conclusion || undefined,
+      override_reason: reviewForm.override_reason || undefined,
+    })
+    reviewModal.value = false
+    reviewSuccess.value = true
+    setTimeout(() => { reviewSuccess.value = false }, 3000)
+  } catch (e) {
+    reviewError.value = '提交失败，请稍后重试'
+  } finally {
+    reviewSubmitting.value = false
+  }
 }
 
 onMounted(async () => {
@@ -403,6 +552,101 @@ onMounted(async () => {
 }
 .action-btn:hover { background: var(--slate-50); }
 .pdf-btn { color: var(--blue-600); border-color: var(--blue-200); background: var(--blue-50); }
+.review-btn { color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff; }
+.review-btn:hover { background: #ede9fe; }
+
+/* 弹窗遮罩 */
+.modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 14px;
+  width: 520px;
+  max-width: 96vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.modal-title { font-size: 16px; font-weight: 700; color: #333; }
+.modal-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 16px; color: var(--slate-400); padding: 4px 8px;
+  border-radius: 6px; transition: background 0.15s;
+}
+.modal-close:hover { background: var(--slate-100); }
+.modal-body { padding: 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+.modal-footer {
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--slate-200);
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+
+/* 表单元素 */
+.form-row { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--slate-700); }
+.required { color: #dc2626; }
+.form-input {
+  border: 1px solid var(--slate-200); border-radius: 8px;
+  padding: 8px 12px; font-size: 14px; color: var(--slate-800);
+  outline: none; transition: border-color 0.15s; font-family: inherit;
+}
+.form-input:focus { border-color: var(--blue-500); }
+.form-textarea {
+  border: 1px solid var(--slate-200); border-radius: 8px;
+  padding: 8px 12px; font-size: 14px; color: var(--slate-800);
+  outline: none; resize: vertical; font-family: inherit; line-height: 1.6;
+}
+.form-textarea:focus { border-color: var(--blue-500); }
+.form-error { font-size: 13px; color: #dc2626; background: #fef2f2; padding: 8px 12px; border-radius: 6px; }
+
+/* 单选按钮组 */
+.radio-group { display: flex; flex-direction: column; gap: 8px; }
+.radio-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 8px; cursor: pointer;
+  border: 1.5px solid var(--slate-200); font-size: 14px; color: var(--slate-700);
+  transition: all 0.15s;
+}
+.radio-item input { accent-color: var(--blue-600); }
+.radio-active-green { border-color: #86efac; background: #f0fdf4; color: #166534; }
+.radio-active-yellow { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.radio-active-red { border-color: #fca5a5; background: #fef2f2; color: #991b1b; }
+
+.modal-cancel {
+  padding: 9px 20px; border-radius: 8px; border: 1px solid var(--slate-200);
+  background: #fff; color: var(--slate-600); font-size: 14px; cursor: pointer;
+}
+.modal-cancel:hover { background: var(--slate-50); }
+.modal-submit {
+  padding: 9px 24px; border-radius: 8px; border: none;
+  background: #7c3aed; color: #fff; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s;
+}
+.modal-submit:hover:not(:disabled) { background: #6d28d9; }
+.modal-submit:disabled { background: var(--slate-300); cursor: not-allowed; }
+
+/* 成功提示 toast */
+.review-toast {
+  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+  background: #166534; color: #fff;
+  padding: 12px 24px; border-radius: 24px;
+  font-size: 14px; font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  z-index: 1001; animation: toast-in 0.3s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 
 /* 加载/错误 */
 .loading-screen, .error-screen {
@@ -676,17 +920,44 @@ onMounted(async () => {
 /* 审计清单 */
 .checklist-card {
   background: #fff; border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md); padding: 6px 20px; box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-md); padding: 12px 16px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: 10px;
 }
 .checklist-item {
-  display: flex; align-items: flex-start; gap: 12px;
-  padding: 12px 0; border-bottom: 1px solid var(--slate-100);
+  padding: 9px 0; border-bottom: 1px solid var(--slate-100);
+  font-size: 14px; display: flex; gap: 10px; align-items: flex-start;
 }
 .checklist-item:last-child { border-bottom: none; }
 .mat-check { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 .checklist-item label { font-size: 14px; color: var(--slate-700); cursor: pointer; line-height: 1.6; }
-.checklist-item label .mat-purpose { display: block; font-size: 12px; color: var(--slate-400); margin-top: 2px; }
+.mat-purpose { display: block; font-size: 12px; color: var(--slate-400); margin-top: 3px; line-height: 1.5; }
 .no-mat { padding: 16px 0; color: var(--slate-400); font-size: 14px; }
+/* 分组 */
+.cl-group { border-radius: 8px; overflow: hidden; border: 1px solid; }
+.cl-group-high   { border-color: #fca5a5; background: #fef2f2; }
+.cl-group-medium { border-color: #fcd34d; background: #fffbeb; }
+.cl-group-low    { border-color: #86efac; background: #f0fdf4; }
+.cl-group-tip    { border-color: #93c5fd; background: #eff6ff; }
+.cl-group-title {
+  font-size: 12px; font-weight: 700; padding: 6px 14px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.cl-group-high   .cl-group-title { color: #991b1b; }
+.cl-group-medium .cl-group-title { color: #92400e; }
+.cl-group-low    .cl-group-title { color: #166534; }
+.cl-group-tip    .cl-group-title { color: #1e40af; }
+.cl-group .checklist-item { padding: 9px 14px; border-bottom: 1px solid rgba(0,0,0,0.05); }
+.cl-group .checklist-item:last-child { border-bottom: none; }
+.cl-item-body { flex: 1; min-width: 0; }
+.cl-item-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cl-sources { display: flex; gap: 4px; flex-wrap: wrap; }
+.cl-rule-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  background: rgba(0,0,0,0.06); color: var(--slate-600);
+  font-family: monospace; cursor: pointer; border: 1px solid rgba(0,0,0,0.08);
+  transition: background 0.15s;
+}
+.cl-rule-tag:hover { background: var(--blue-100); color: var(--blue-700); border-color: var(--blue-200); }
 
 /* 免责声明 */
 .disclaimer {

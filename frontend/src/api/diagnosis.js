@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 120000, // 长文本第二轮对话可能较慢，与后端 httpx 超时对齐
+  timeout: 120000,
 })
 
 export const sendChat = (sessionId, message, fields) =>
@@ -13,7 +13,6 @@ export const patchSessionFields = (sessionId, fields) =>
 
 export const fetchFieldDefinitions = () => api.get('/field-definitions')
 
-// 提交诊断会并发调用 DeepSeek 丰富化报告；reasoner 等模型可能需数分钟，单独放宽超时
 const CONFIRM_TIMEOUT_MS = 600000
 
 export const confirmDiagnosis = (sessionId, fields) =>
@@ -25,9 +24,17 @@ export const getDiagnosis = (id) =>
 export const listDiagnosesByBpm = (bpmId) =>
   api.get('/diagnose/by-bpm', { params: { bpm_id: bpmId } })
 
-/** 填报溯源：确认字段 + 对话快照（不用于报告页） */
+/** 填报溯源：确认字段 + 对话快照 */
 export const getDiagnosisTraceability = (id) =>
   api.get(`/diagnose/${id}/traceability`)
+
+/** 提交人工复核结论（规格 §7） */
+export const submitReview = (diagnosisId, payload) =>
+  api.post(`/diagnose/${diagnosisId}/review`, payload)
+
+/** 查询某条诊断的全部复核记录 */
+export const listReviews = (diagnosisId) =>
+  api.get(`/diagnose/${diagnosisId}/reviews`)
 
 export const getReportHtml = (id) =>
   `/api/report/${id}/html`

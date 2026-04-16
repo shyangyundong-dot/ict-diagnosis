@@ -88,6 +88,15 @@
         </span>
       </div>
 
+      <!-- 实时预警气泡（规格 §12.1） -->
+      <div v-if="realtimeWarnings.length > 0" class="warning-panel">
+        <div v-for="(w, i) in realtimeWarnings" :key="i"
+             class="warning-bubble"
+             :class="w.level === 'high' ? 'warning-high' : 'warning-medium'">
+          {{ w.message }}
+        </div>
+      </div>
+
       <div class="fields-body">
         <div v-if="!sessionId" class="fields-empty">
           <div class="empty-icon">💬</div>
@@ -107,11 +116,15 @@
             </div>
             <div v-if="!loading && parsedFieldKeys.length === 0 && sessionId" class="section-empty">
               尚未解析出结构化字段。请继续描述，并尽量包含
-              <strong>项目类型、BPM 编号、客户类型、采购方式</strong> 等关键信息；也可在下方待补充区直接选择。
+              <strong>项目类型、BPM 编号、前向客户类型、后向采购方式</strong> 等关键信息；也可在下方待补充区直接选择。
             </div>
             <div v-if="parsedFieldKeys.length > 0" class="field-list">
-              <div v-for="key in parsedFieldKeys" :key="key" class="field-item">
-                <div class="field-label">{{ getFieldLabel(key) }}</div>
+              <div v-for="key in parsedFieldKeys" :key="key" class="field-item"
+                   :class="aiExtractedKeys.has(key) ? 'field-item-ai' : ''">
+                <div class="field-label">
+                  {{ getFieldLabel(key) }}
+                  <span v-if="aiExtractedKeys.has(key)" class="ai-src-tag">AI 提取</span>
+                </div>
                 <FieldControl
                   :field-key="key"
                   :model-value="currentFields[key]"
@@ -199,13 +212,14 @@ import { sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions }
 
 const FIELD_LABELS = {
   bpm_id: 'BPM商机编号', project_type: '项目类型', customer_type: '前向客户类型',
-  supplier_confirmed: '后向供应商是否已确定', procurement_method: '采购方式',
+  supplier_confirmed: '后向供应商是否已确定', procurement_method: '后向采购方式',
   related_party: '前后向关联关系', gross_margin: '毛利率估算',
   revenue_recognition: '收入确认方式', is_end_user: '客户是否为最终用户',
   has_telecom_capability: '是否有电信自有能力融入', capability_ratio: '自有能力占比',
   contract_content_same: '前后向合同内容是否一致', project_location: '项目实施地点',
   scheme_reviewed: '方案是否经过中台评审', hardware_construction: '是否含硬件/施工内容',
-  logistics_control: '物流是否由电信主控', service_by_telecom: '服务是否由电信自有团队',
+  logistics_control: '物流是否由电信主控',
+  service_delivery_mode: '服务交付是否由电信自有团队执行',
   service_period: '服务周期',
   has_prepayment: '我方采购是否含预付款', has_advance_funding: '我方是否存在垫资',
   related_party_checked: '三方关联关系是否已核查',
@@ -219,6 +233,10 @@ const sessionId = ref(null)
 const missingFields = ref([])
 const diagnosisId = ref(null)
 const fieldDefinitions = ref({})
+// 实时预警（规格 §12.1）
+const realtimeWarnings = ref([])
+// AI 提取的字段键集合（本轮累计，用于标注来源）
+const aiExtractedKeys = ref(new Set())
 
 const isComplete = computed(
   () => sessionId.value != null && missingFields.value.length === 0
@@ -277,6 +295,20 @@ async function commitFieldPatch(partial) {
     const res = await patchSessionFields(sessionId.value, partial)
     currentFields.value = normalizeFieldsFromServer(res.data.extracted_fields)
     missingFields.value = res.data.missing_fields || []
+    // 实时预警：手动修改字段时更新
+    if (res.data.realtime_warnings?.length) {
+      const newWarnings = res.data.realtime_warnings
+      // 合并（同字段去重，保留最新）
+      const map = new Map(realtimeWarnings.value.map(w => [w.field, w]))
+      for (const w of newWarnings) map.set(w.field, w)
+      realtimeWarnings.value = Array.from(map.values())
+    }
+    // 手动修改的字段不标 AI 来源，从集合中移除
+    for (const k of Object.keys(partial)) {
+      const newSet = new Set(aiExtractedKeys.value)
+      newSet.delete(k)
+      aiExtractedKeys.value = newSet
+    }
   } catch (e) {
     alert(`保存失败：${formatApiError(e)}`)
   }
@@ -341,6 +373,19 @@ async function sendMessage() {
     currentFields.value = normalizeFieldsFromServer(data.extracted_fields || {})
     missingFields.value = data.missing_fields || []
 
+    // 实时预警：合并本轮新预警
+    if (data.realtime_warnings?.length) {
+      const map = new Map(realtimeWarnings.value.map(w => [w.field, w]))
+      for (const w of data.realtime_warnings) map.set(w.field, w)
+      realtimeWarnings.value = Array.from(map.values())
+    }
+    // 累计 AI 提取键
+    if (data.ai_extracted_keys?.length) {
+      const newSet = new Set(aiExtractedKeys.value)
+      for (const k of data.ai_extracted_keys) newSet.add(k)
+      aiExtractedKeys.value = newSet
+    }
+
     let replyText = data.reply != null ? String(data.reply).trim() : ''
     if (!replyText) {
       replyText =
@@ -383,6 +428,8 @@ function resetChat() {
   missingFields.value = []
   diagnosisId.value = null
   currentFields.value = {}
+  realtimeWarnings.value = []
+  aiExtractedKeys.value = new Set()
 }
 </script>
 
@@ -806,8 +853,58 @@ function resetChat() {
   margin-bottom: 8px;
 }
 .field-item:last-child { margin-bottom: 0; }
-.field-label { font-size: 11px; color: var(--slate-400); margin-bottom: 3px; font-weight: 500; }
+.field-item-ai {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.field-label {
+  font-size: 11px;
+  color: var(--slate-400);
+  margin-bottom: 3px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .field-value { font-size: 14px; color: var(--slate-800); font-weight: 500; }
+
+/* AI 来源标注（规格 §12.1） */
+.ai-src-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 实时预警气泡（规格 §12.1） */
+.warning-panel {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--slate-200);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #fff;
+  flex-shrink: 0;
+}
+.warning-bubble {
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.warning-high {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+.warning-medium {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
 
 /* 提交区 */
 .fields-footer {

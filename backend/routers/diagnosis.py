@@ -7,13 +7,16 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.diagnosis import DiagnosisRecord, ChatSession
-from rules.engine import run_diagnosis, RULE_VERSION
+from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord
+from rules.engine import run_diagnosis, RULE_VERSION, get_realtime_warnings
 from ai_chat import (
     chat_with_ai,
     get_missing_fields,
     FIELD_DEFINITIONS,
     normalize_project_type_field,
+    migrate_legacy_service_fields,
+    strip_deprecated_input_fields,
+    apply_derived_fields_for_diagnosis,
     build_fields_display,
 )
 from report_generator import generate_report_html, generate_pdf
@@ -27,20 +30,27 @@ router = APIRouter(prefix="/api")
 class ChatMessage(BaseModel):
     session_id: str | None = None
     message: str
-    fields: dict | None = None  # 前端当前编辑态，先发后合并再调模型
-
+    fields: dict | None = None
 
 class SessionFieldsBody(BaseModel):
     fields: dict
 
 class ConfirmSubmit(BaseModel):
     session_id: str
-    fields: dict           # 用户在前端确认/修改后的最终字段
+    fields: dict
 
 class DiagnoseDirectly(BaseModel):
     bpm_id: str
     project_type: str
     fields: dict
+
+class ReviewSubmit(BaseModel):
+    """人工复核与异议提交（规格 §7）"""
+    reviewer_id: str | None = None          # MVP 阶段可选
+    review_result: str                       # confirmed | partial | overridden
+    risk_point_ids: list[str] | None = None  # 被推翻的 rule_id 列表
+    manual_conclusion: str | None = None
+    override_reason: str | None = None
 
 
 # ── 对话接口 ───────────────────────────────────────────────────
@@ -49,7 +59,6 @@ class DiagnoseDirectly(BaseModel):
 async def chat(body: ChatMessage, db: Session = Depends(get_db)):
     """对话式收集项目信息"""
 
-    # 获取或创建会话
     session_id = body.session_id or str(uuid.uuid4())
     session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
 
@@ -70,7 +79,6 @@ async def chat(body: ChatMessage, db: Session = Depends(get_db)):
     if body.fields is not None:
         current_fields.update(body.fields)
 
-    # 添加用户消息
     messages.append({"role": "user", "content": body.message})
 
     pt_ctx = current_fields.get("project_type")
@@ -97,6 +105,14 @@ async def chat(body: ChatMessage, db: Session = Depends(get_db)):
 
     fields_display = build_fields_display(current_fields)
 
+    # 对新提取的字段做即时预警
+    realtime_warnings = []
+    for k, v in new_fields.items():
+        if v is not None:
+            w = get_realtime_warnings(k, v)
+            if w:
+                realtime_warnings.append(w)
+
     return {
         "session_id": session_id,
         "reply": ai_result["reply"],
@@ -105,6 +121,9 @@ async def chat(body: ChatMessage, db: Session = Depends(get_db)):
         "missing_fields": missing,
         "is_complete": is_complete,
         "status": session.status,
+        "realtime_warnings": realtime_warnings,
+        # AI 来源标注：本轮新提取的字段键列表，前端用于标黄
+        "ai_extracted_keys": list(new_fields.keys()),
     }
 
 
@@ -126,6 +145,13 @@ async def patch_session_fields(session_id: str, body: SessionFieldsBody, db: Ses
     session.status = "confirmed" if is_complete else "collecting"
     db.commit()
 
+    # 对手动修改的字段做即时预警
+    realtime_warnings = []
+    for k, v in body.fields.items():
+        w = get_realtime_warnings(k, v)
+        if w:
+            realtime_warnings.append(w)
+
     return {
         "session_id": session_id,
         "extracted_fields": current_fields,
@@ -133,6 +159,7 @@ async def patch_session_fields(session_id: str, body: SessionFieldsBody, db: Ses
         "missing_fields": missing,
         "is_complete": is_complete,
         "status": session.status,
+        "realtime_warnings": realtime_warnings,
     }
 
 
@@ -152,13 +179,18 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
 
     fields = dict(body.fields)
     normalize_project_type_field(fields)
+    migrate_legacy_service_fields(fields)
+    strip_deprecated_input_fields(fields)
     session.extracted_fields_json = json.dumps(fields, ensure_ascii=False)
 
-    bpm_id = fields.get("bpm_id") or "未填写"
+    fields_for_diagnosis = dict(fields)
+    apply_derived_fields_for_diagnosis(fields_for_diagnosis)
+
+    bpm_id = fields_for_diagnosis.get("bpm_id") or "未填写"
     if isinstance(bpm_id, str) and not bpm_id.strip():
         bpm_id = "未填写"
 
-    pt = fields.get("project_type")
+    pt = fields_for_diagnosis.get("project_type")
     if isinstance(pt, list) and pt:
         pt_for_rules = pt
         project_type_db = ",".join(pt)
@@ -169,9 +201,8 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         pt_for_rules = ["system_integration"]
         project_type_db = "system_integration"
 
-    result = run_diagnosis(pt_for_rules, fields)
+    result = run_diagnosis(pt_for_rules, fields_for_diagnosis)
 
-    # 获取对话历史用于AI个性化分析
     chat_history = None
     if session:
         try:
@@ -179,19 +210,16 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         except Exception:
             chat_history = None
 
-    # B方案：用AI针对具体项目生成个性化分析（含A方案的板块分节）
     try:
-        result = await enrich_diagnosis_with_ai(result, fields, chat_history)
+        result = await enrich_diagnosis_with_ai(result, fields_for_diagnosis, chat_history)
     except Exception as e:
-        # AI丰富化失败不影响主流程，降级为原始规则输出
         result["ai_enriched"] = False
         result["ai_error"] = str(e)
 
-    # 保存诊断记录（对话快照仅用于溯源，不进入报告）
     record = DiagnosisRecord(
         bpm_id=bpm_id,
         project_type=project_type_db,
-        input_json=json.dumps(fields, ensure_ascii=False),
+        input_json=json.dumps(fields_for_diagnosis, ensure_ascii=False),
         chat_snapshot_json=session.messages_json,
         overall_risk=result["overall_risk"],
         result_json=json.dumps(result, ensure_ascii=False),
@@ -214,12 +242,72 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
     }
 
 
+# ── 人工复核与异议接口（规格 §7）─────────────────────────────
+
+@router.post("/diagnose/{diagnosis_id}/review")
+async def submit_review(diagnosis_id: int, body: ReviewSubmit, db: Session = Depends(get_db)):
+    """审核人员提交人工复核结论（一致 / 部分采纳 / 推翻）"""
+    record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="诊断记录不存在")
+
+    if body.review_result not in ("confirmed", "partial", "overridden"):
+        raise HTTPException(status_code=400, detail="review_result 须为 confirmed / partial / overridden")
+
+    dissent = DissentRecord(
+        diagnosis_id=diagnosis_id,
+        bpm_id=record.bpm_id,
+        reviewer_id=body.reviewer_id or "匿名审核员",
+        review_result=body.review_result,
+        risk_point_ids=json.dumps(body.risk_point_ids or [], ensure_ascii=False),
+        manual_conclusion=body.manual_conclusion,
+        override_reason=body.override_reason,
+        rule_version=record.rule_version,
+        pmo_status="pending",
+    )
+    db.add(dissent)
+    db.commit()
+    db.refresh(dissent)
+
+    return {
+        "dissent_id": dissent.id,
+        "diagnosis_id": diagnosis_id,
+        "review_result": dissent.review_result,
+        "created_at": dissent.created_at.strftime("%Y-%m-%d %H:%M") if dissent.created_at else "",
+    }
+
+
+@router.get("/diagnose/{diagnosis_id}/reviews")
+async def list_reviews(diagnosis_id: int, db: Session = Depends(get_db)):
+    """查询某条诊断记录的所有复核记录"""
+    records = (
+        db.query(DissentRecord)
+        .filter(DissentRecord.diagnosis_id == diagnosis_id)
+        .order_by(DissentRecord.created_at.desc())
+        .all()
+    )
+    items = []
+    for r in records:
+        items.append({
+            "dissent_id": r.id,
+            "reviewer_id": r.reviewer_id,
+            "review_result": r.review_result,
+            "risk_point_ids": json.loads(r.risk_point_ids or "[]"),
+            "manual_conclusion": r.manual_conclusion,
+            "override_reason": r.override_reason,
+            "pmo_status": r.pmo_status,
+            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
+        })
+    return {"diagnosis_id": diagnosis_id, "count": len(items), "items": items}
+
+
+# ── 查询接口 ───────────────────────────────────────────────────
+
 @router.get("/diagnose/by-bpm")
 async def list_diagnoses_by_bpm(
-    bpm_id: str = Query(..., description="BPM 商机编码（与填报时一致，精确匹配）"),
+    bpm_id: str = Query(..., description="BPM 商机编码"),
     db: Session = Depends(get_db),
 ):
-    """按 BPM 商机编码查询历史诊断记录（同一编码可有多条，按时间倒序）。"""
     key = (bpm_id or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="请提供 BPM 商机编码")
@@ -251,7 +339,7 @@ async def list_diagnoses_by_bpm(
 
 @router.get("/diagnose/{diagnosis_id}/traceability")
 async def get_diagnosis_traceability(diagnosis_id: int, db: Session = Depends(get_db)):
-    """填报溯源：返回提交时的确认字段与对话快照（不用于报告正文）。"""
+    """填报溯源：返回提交时的确认字段与对话快照。"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="诊断记录不存在")
@@ -304,7 +392,6 @@ async def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)):
         "audit_checklist": result.get("audit_checklist", []),
         "rule_version": record.rule_version,
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
-        # 以下字段存于 result_json，供前端 /report/:id 与下载 HTML 一致（分板块、AI 标识）
         "segments": result.get("segments"),
         "ai_enriched": result.get("ai_enriched", False),
         "is_mixed_project": result.get("is_mixed_project", False),
@@ -340,7 +427,6 @@ async def get_report_pdf(diagnosis_id: int, db: Session = Depends(get_db)):
             headers={"Content-Disposition": f"attachment; filename=report_{diagnosis_id}.pdf"},
         )
     else:
-        # 降级为HTML下载
         return Response(
             content=html.encode("utf-8"),
             media_type="text/html",
