@@ -76,8 +76,12 @@
       </div>
     </div>
 
-    <!-- 右侧：先展示已解析确认项，再展示待补充项 -->
-    <div class="fields-panel">
+    <!-- 右侧：先展示已解析确认项，再展示待补充项（移动端为底部抽屉，DOM 共用） -->
+    <div class="fields-panel" :class="{ 'drawer-open': drawerOpen }">
+      <div class="drawer-handle-bar">
+        <div class="drawer-handle"></div>
+        <button type="button" class="drawer-close" @click="closeDrawer">✕</button>
+      </div>
       <div class="fields-header">
         <div class="fields-header-text">
           <span class="fields-header-title">信息解析</span>
@@ -202,6 +206,17 @@
       </div>
     </div>
 
+    <div v-if="drawerOpen" class="drawer-mask" @click="closeDrawer"></div>
+    <button
+      type="button"
+      class="drawer-trigger"
+      :class="isComplete ? 'drawer-trigger--complete' : 'drawer-trigger--incomplete'"
+      @click="openDrawer"
+    >
+      <span v-if="isComplete">✅ 可提交诊断</span>
+      <span v-else>📋 字段信息 · 待补充 {{ missingFields.length }} 项</span>
+    </button>
+
   </div>
 </template>
 
@@ -220,6 +235,7 @@ const FIELD_LABELS = {
   scheme_reviewed: '方案是否经过中台评审', hardware_construction: '是否含硬件/施工内容',
   logistics_control: '物流是否由电信主控',
   service_delivery_mode: '服务交付是否由电信自有团队执行',
+  service_capability_level: '电信自有服务能力等级（六必要，系统依据交付模式推导）',
   service_period: '服务周期',
   has_prepayment: '我方采购是否含预付款', has_advance_funding: '我方是否存在垫资',
   related_party_checked: '三方关联关系是否已核查',
@@ -244,6 +260,10 @@ const isComplete = computed(
 const currentFields = ref({})
 const messagesRef = ref(null)
 const inputRef = ref(null)
+const drawerOpen = ref(false)
+
+function openDrawer() { drawerOpen.value = true }
+function closeDrawer() { drawerOpen.value = false }
 
 const parsedFieldKeys = computed(() => {
   const missing = new Set(missingFields.value)
@@ -430,6 +450,7 @@ function resetChat() {
   currentFields.value = {}
   realtimeWarnings.value = []
   aiExtractedKeys.value = new Set()
+  drawerOpen.value = false
 }
 </script>
 
@@ -960,4 +981,114 @@ function resetChat() {
 }
 .report-link:hover { background: var(--blue-100); }
 .pdf-link { color: var(--slate-600); background: var(--slate-50); }
+
+/* ── 移动端底部抽屉（仅新增规则，不改动上方既有样式） ── */
+.drawer-handle-bar {
+  display: none;
+}
+
+.drawer-mask {
+  display: none;
+}
+
+.drawer-trigger {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .chat-panel {
+    width: 100%;
+    height: 100vh;
+    border-right: none;
+  }
+
+  .fields-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100% !important;
+    height: 75vh;
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+    z-index: 200;
+    background: #fff;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fields-panel.drawer-open {
+    transform: translateY(0);
+  }
+
+  .drawer-handle-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px 4px;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .drawer-handle {
+    width: 40px;
+    height: 4px;
+    background: #cbd5e1;
+    border-radius: 2px;
+  }
+
+  .drawer-close {
+    position: absolute;
+    right: 16px;
+    top: 8px;
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+
+  .drawer-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 190;
+  }
+
+  .drawer-trigger {
+    position: fixed;
+    right: 16px;
+    bottom: 90px;
+    z-index: 150;
+    display: block;
+    border: 1.5px solid;
+    border-radius: 20px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .drawer-trigger--incomplete {
+    background: #fffbeb;
+    border-color: #fcd34d;
+    color: #92400e;
+  }
+
+  .drawer-trigger--complete {
+    background: #f0fdf4;
+    border-color: #86efac;
+    color: #166534;
+  }
+}
 </style>

@@ -171,6 +171,19 @@ FIELD_DEFINITIONS = {
         "options_label": ["全部自有团队", "混合（自有+外包）", "全部外包/供应商执行"],
         "hint": "判断电信在交付中的实际角色——影响主要责任人/代理人认定；「六必要」能力等级由系统依据本项自动推导"
     },
+    # 系统依据 service_delivery_mode 推导入库；展示层需 label/options 以便前端与溯源页显示中文
+    "service_capability_level": {
+        "label": "电信自有服务能力等级（六必要，系统依据交付模式推导）",
+        "required": False,
+        "applies_to": ["service"],
+        "options": ["strong", "medium", "weak", "none"],
+        "options_label": [
+            "强（N1-N6全部具备，有充分留痕）",
+            "中（N1-N6部分具备，部分需补充）",
+            "弱（仅具备1-3项，难以全额列收）",
+            "无（无法举证任何六必要能力）",
+        ],
+    },
 }
 
 

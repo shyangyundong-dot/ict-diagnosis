@@ -32,6 +32,10 @@
     <template v-else>
       <span class="field-fallback">{{ modelValue }}</span>
     </template>
+    <div v-if="defn.hint" class="hint-wrap">
+      <span class="hint-icon">?</span>
+      <span class="hint-tooltip">{{ defn.hint }}</span>
+    </div>
   </div>
 </template>
 
@@ -129,5 +133,46 @@ function onSelect(ev) {
   font-size: 13px;
   color: var(--slate-600);
   word-break: break-word;
+}
+.hint-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 5px;
+}
+.hint-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--slate-300);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: default;
+  user-select: none;
+  line-height: 1;
+}
+.hint-tooltip {
+  display: none;
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1e293b;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px 12px;
+  border-radius: 6px;
+  width: 240px;
+  z-index: 100;
+  white-space: pre-wrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.hint-wrap:hover .hint-tooltip {
+  display: block;
 }
 </style>

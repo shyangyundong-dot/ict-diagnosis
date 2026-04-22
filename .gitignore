@@ -18,3 +18,6 @@ frontend/dist/
 
 # 本地生成的代码审查 zip（scripts/make-review-bundle.sh）
 review-bundles/
+
+# 本地/二期备忘录等，不入库
+docs/

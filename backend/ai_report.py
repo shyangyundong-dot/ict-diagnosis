@@ -83,7 +83,7 @@ FIELD_VALUE_LABELS = {
     },
     "service_capability_level": {
         "strong": "强（N1-N6全部具备，有充分留痕）",
-        "medium": "中（N1-N6大部分具备，部分需补充）",
+        "medium": "中（N1-N6部分具备，部分需补充）",
         "weak": "弱（仅具备1-3项，难以全额列收）",
         "none": "无（无法举证任何六必要能力）",
     },
