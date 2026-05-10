@@ -39,10 +39,6 @@ class ConfirmSubmit(BaseModel):
     session_id: str
     fields: dict
 
-class DiagnoseDirectly(BaseModel):
-    bpm_id: str
-    project_type: str
-    fields: dict
 
 class ReviewSubmit(BaseModel):
     """人工复核与异议提交（规格 §7）"""
@@ -187,7 +183,9 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
     apply_derived_fields_for_diagnosis(fields_for_diagnosis)
 
     bpm_id = fields_for_diagnosis.get("bpm_id") or "未填写"
-    if isinstance(bpm_id, str) and not bpm_id.strip():
+    if isinstance(bpm_id, str) and bpm_id.strip():
+        bpm_id = bpm_id.strip().upper()
+    else:
         bpm_id = "未填写"
 
     pt = fields_for_diagnosis.get("project_type")
@@ -198,8 +196,7 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         pt_for_rules = [pt.strip()]
         project_type_db = pt.strip()
     else:
-        pt_for_rules = ["system_integration"]
-        project_type_db = "system_integration"
+        raise HTTPException(status_code=400, detail="project_type 为必填项，请先确认项目类型")
 
     result = run_diagnosis(pt_for_rules, fields_for_diagnosis)
 
@@ -236,6 +233,7 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         "overall_risk_label": result["overall_risk_label"],
         "triggered_rules": result["triggered_rules"],
         "tips": result["tips"],
+        "manual_check_rules": result.get("manual_check_rules", []),
         "audit_checklist": result["audit_checklist"],
         "rule_version": result["rule_version"],
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
@@ -308,7 +306,7 @@ async def list_diagnoses_by_bpm(
     bpm_id: str = Query(..., description="BPM 商机编码"),
     db: Session = Depends(get_db),
 ):
-    key = (bpm_id or "").strip()
+    key = (bpm_id or "").strip().upper()
     if not key:
         raise HTTPException(status_code=400, detail="请提供 BPM 商机编码")
 
@@ -393,6 +391,7 @@ async def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)):
         "rule_version": record.rule_version,
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
         "segments": result.get("segments"),
+        "manual_check_rules": result.get("manual_check_rules", []),
         "ai_enriched": result.get("ai_enriched", False),
         "is_mixed_project": result.get("is_mixed_project", False),
     }

@@ -289,6 +289,48 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
 
     checklist_inner = _render_checklist_html(checklist)
 
+    # 需人工核查规则
+    manual_check_rules = result.get("manual_check_rules", [])
+    manual_cards_html = ""
+    for rule in manual_check_rules:
+        mats_html = ""
+        for mat in rule.get("audit_materials", []):
+            mats_html += (
+                f'<div class="audit-item">'
+                f'<span class="audit-check">☐</span>'
+                f'<div class="audit-item-main">'
+                f'<strong>{mat["item"]}</strong>'
+                f'<span class="audit-sep"> — </span>'
+                f'<span class="audit-purpose">{mat["purpose"]}</span>'
+                f"</div></div>"
+            )
+        mats_block = (
+            f'<div class="rule-section audit-materials-section">'
+            f'<div class="section-title">📁 核查所需材料</div>'
+            f'<div class="section-body"><div class="audit-mats">{mats_html}</div></div>'
+            f'</div>'
+        ) if mats_html else ""
+        manual_cards_html += f'''
+    <div class="rule-card manual-card">
+        <div class="rule-header">
+            <span class="rule-badge manual-badge">🔍 需人工核查</span>
+            <span class="rule-id">{rule["rule_id"]}</span>
+            <span class="rule-name">{rule["rule_name"]}</span>
+        </div>
+        <div class="rule-section">
+            <div class="section-title">⚠️ 核查说明</div>
+            <div class="section-body section-body-pre">{rule["risk_description"]}</div>
+        </div>
+        {mats_block}
+    </div>'''
+    manual_section_html = ""
+    if manual_cards_html:
+        manual_section_html = (
+            f'<div class="section-heading">人工核查项目 '
+            f'<span class="heading-sub">（系统无法自动判断，须人工逐项确认）</span></div>'
+            f'{manual_cards_html}'
+        )
+
     seg_note = " · 已按业务板块分节分析" if segments else ""
     overall_summary_line = (
         f'共触发 <strong>{len(triggered)}</strong> 条风险规则 · <strong>{len(tips)}</strong> 条操作提示{seg_note}'
@@ -702,6 +744,10 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     border: 1px solid #e2e8f0;
   }}
 
+  /* 人工核查卡片 */
+  .manual-card {{ border-left: 4px solid #d97706 !important; }}
+  .manual-badge {{ background: #d97706; }}
+
   /* 免责声明 */
   .disclaimer {{
     margin-top: 32px;
@@ -752,7 +798,10 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   <!-- 操作提示（降级模式）-->
   {_tips_section_html}
 
-    <!-- 审计材料清单 -->
+    <!-- 人工核查项 -->
+  {manual_section_html}
+
+  <!-- 审计材料清单 -->
   <div class="section-heading">审计资料必备清单</div>
   <div class="checklist-box">
     {checklist_inner}

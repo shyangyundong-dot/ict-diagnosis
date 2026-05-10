@@ -145,7 +145,7 @@ def build_project_summary(fields: dict, chat_history: list[dict] | None = None) 
 
     # 提取对话中的用户原始描述（最多取前3条用户消息）
     if chat_history:
-        user_msgs = [m["content"] for m in chat_history if m.get("role") == "user"][:3]
+        user_msgs = [m["content"] for m in chat_history if m.get("role") == "user"]
         if user_msgs:
             lines.append("\n【用户原始描述（对话摘要）】")
             for i, msg in enumerate(user_msgs, 1):

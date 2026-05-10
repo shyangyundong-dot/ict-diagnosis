@@ -252,6 +252,39 @@
         </div>
       </template>
 
+      <!-- 人工核查项 -->
+      <template v-if="data.manual_check_rules?.length">
+        <div class="section-heading">
+          人工核查项目
+          <span class="heading-sub">（系统无法自动判断，须人工逐项确认）</span>
+        </div>
+        <div v-for="rule in data.manual_check_rules" :key="rule.rule_id" class="rule-card manual-card">
+          <div class="rule-card-header" @click="toggleRule('manual-' + rule.rule_id)">
+            <div class="rule-card-left">
+              <span class="risk-badge manual-badge">🔍 需人工核查</span>
+              <span class="rule-code">{{ rule.rule_id }}</span>
+              <span class="rule-title">{{ rule.rule_name }}</span>
+            </div>
+            <span class="toggle-icon">{{ expanded['manual-' + rule.rule_id] ? '▲' : '▼' }}</span>
+          </div>
+          <transition name="slide">
+            <div v-if="expanded['manual-' + rule.rule_id]" class="rule-card-body">
+              <div class="rule-section">
+                <div class="section-label">⚠️ 核查说明</div>
+                <div class="section-text">{{ rule.risk_description }}</div>
+              </div>
+              <div v-if="rule.audit_materials?.length" class="rule-section">
+                <div class="section-label">📁 核查所需材料</div>
+                <div v-for="mat in rule.audit_materials" :key="mat.item" class="mat-row">
+                  <span class="mat-check">☐</span>
+                  <div><strong>{{ mat.item }}</strong> — {{ mat.purpose }}</div>
+                </div>
+              </div>
+            </div>
+          </transition>
+        </div>
+      </template>
+
       <!-- 审计材料总清单 -->
       <div class="section-heading">审计资料必备清单</div>
       <div class="checklist-card">
@@ -907,6 +940,21 @@ onMounted(async () => {
   font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
 }
 .tip-body { padding: 14px 16px; font-size: 14px; color: var(--slate-700); line-height: 1.8; }
+
+/* 人工核查卡片 */
+.manual-card {
+  border-left: 4px solid #d97706 !important;
+}
+.manual-badge {
+  background: #d97706; color: #fff;
+  font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
+}
+.mat-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 6px 0; font-size: 14px; color: var(--slate-700);
+  border-bottom: 1px solid #f1f5f9;
+}
+.mat-row:last-child { border-bottom: none; }
 
 /* 无风险 */
 .no-risk-card {

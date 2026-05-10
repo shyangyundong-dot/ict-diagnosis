@@ -195,6 +195,8 @@
           <span v-else>请先完成信息收集</span>
         </button>
 
+        <div v-if="submitting && submittingHint" class="submitting-hint">{{ submittingHint }}</div>
+
         <div v-if="diagnosisId" class="report-actions">
           <a :href="`/report/${diagnosisId}`" target="_blank" class="report-link">
             📄 在新窗口查看报告
@@ -245,6 +247,7 @@ const messages = ref([])
 const inputText = ref('')
 const loading = ref(false)
 const submitting = ref(false)
+const submittingHint = ref('')
 const sessionId = ref(null)
 const missingFields = ref([])
 const diagnosisId = ref(null)
@@ -428,6 +431,18 @@ async function sendMessage() {
 async function submitDiagnosis() {
   if (!isComplete.value || submitting.value) return
   submitting.value = true
+  submittingHint.value = 'AI 正在逐条分析风险规则，生成个性化报告…'
+  const hints = [
+    '正在结合项目情况生成整改建议…',
+    '正在生成模式优化方向…',
+    '即将完成，请稍候…',
+  ]
+  let hintIdx = 0
+  const hintTimer = setInterval(() => {
+    if (hintIdx < hints.length) {
+      submittingHint.value = hints[hintIdx++]
+    }
+  }, 12000)
   try {
     const res = await confirmDiagnosis(sessionId.value, currentFields.value)
     diagnosisId.value = res.data.diagnosis_id
@@ -435,7 +450,9 @@ async function submitDiagnosis() {
   } catch (e) {
     alert(`提交失败：${formatApiError(e)}`)
   } finally {
+    clearInterval(hintTimer)
     submitting.value = false
+    submittingHint.value = ''
   }
 }
 
@@ -959,6 +976,14 @@ function resetChat() {
   box-shadow: 0 4px 12px rgba(13,148,136,0.28);
 }
 .submit-again:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(13,148,136,0.35); }
+
+.submitting-hint {
+  font-size: 12px;
+  color: var(--slate-500);
+  text-align: center;
+  padding: 6px 0 2px;
+  line-height: 1.5;
+}
 
 .report-actions {
   display: flex;

@@ -160,6 +160,7 @@ def _get_clause_text(clause_id: str) -> list[dict]:
 def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
     triggered = []
     tips = []
+    manual_check_rules = []
 
     if isinstance(project_type, list):
         type_set = [t for t in project_type if t]
@@ -173,9 +174,6 @@ def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
         if "all" not in applies_to:
             if not type_set or not any(t in applies_to for t in type_set):
                 continue
-
-        if not _eval_trigger(rule["trigger"], fields):
-            continue
 
         risk_level = rule["risk_level"]
         clause_sources = _get_clause_text(rule["clause_id"])
@@ -193,6 +191,13 @@ def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
             "clause_sources": clause_sources,
             "audit_materials": rule.get("audit_materials", []),
         }
+
+        if rule["trigger"].get("logic") == "MANUAL":
+            manual_check_rules.append(item)
+            continue
+
+        if not _eval_trigger(rule["trigger"], fields):
+            continue
 
         if risk_level == "tip":
             tips.append(item)
@@ -236,6 +241,7 @@ def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
         "overall_risk_label": RISK_LABEL.get(overall_risk, overall_risk),
         "triggered_rules": triggered,
         "tips": tips,
+        "manual_check_rules": manual_check_rules,
         "audit_checklist": list(audit_set.values()),
         "rule_version": RULE_VERSION,
     }
