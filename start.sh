@@ -50,7 +50,8 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
 fi
 
 echo "📦 安装后端依赖..."
-"$VENV_DIR/bin/pip" install -q -r "$BACKEND_DIR/requirements.txt"
+# 使用 python -m pip，避免项目搬迁后 .venv/bin/pip 的 shebang 仍指向旧路径导致 shell 误执行
+"$VENV_DIR/bin/python" -m pip install -q -r "$BACKEND_DIR/requirements.txt"
 
 # 安装前端依赖
 echo "📦 检查前端依赖..."
@@ -63,7 +64,7 @@ fi
 echo ""
 echo "🚀 启动后端 (http://127.0.0.1:8000)..."
 cd "$BACKEND_DIR"
-"$VENV_DIR/bin/uvicorn" main:app --reload --host 127.0.0.1 --port 8000 &
+"$VENV_DIR/bin/python" -m uvicorn main:app --reload --reload-exclude '.venv' --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
 
 # 等待 /api/health 就绪（失败则退出，避免前端空跑）
@@ -81,7 +82,7 @@ if [ "$READY" -ne 1 ]; then
   echo ""
   echo "❌ 后端未在 8000 端口就绪（/api/health 无响应）。"
   echo "   请在本目录执行以下命令查看报错："
-  echo "   cd backend && .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000"
+  echo "   cd backend && .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000"
   kill "$BACKEND_PID" 2>/dev/null || true
   exit 1
 fi
