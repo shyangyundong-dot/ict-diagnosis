@@ -53,6 +53,22 @@ FIELD_DEFINITIONS = {
         "options": ["open_bid", "sole_source", "comparison", "collective"],
         "options_label": ["公开招标", "单一来源", "比选", "集采"]
     },
+    "forward_bidding_type": {
+        "label": "前向客户的采购方式",
+        "required": True,
+        "applies_to": "all",
+        "options": ["public_bid", "negotiation", "other"],
+        "options_label": ["公开招标", "谈判/议标", "其他"],
+        "hint": "前向客户对电信的采购方式（区别于电信对供应商的后向采购）。若为公开招标，需准备招标公告、应标文件、中标公告等投标材料备查。"
+    },
+    "contract_matches_bpm": {
+        "label": "前向合同客户与BPM商机客户是否一致",
+        "required": True,
+        "applies_to": "all",
+        "options": ["yes", "no", "uncertain"],
+        "options_label": ["是（一致 / 计划保持一致）", "否（不一致）", "不确定 / 尚未签订"],
+        "hint": "六到位「谈判/应标自主」核查要点：合同客户必须与BPM商机录入客户保持一致，否则可能涉及商机录错或借名走账风险。"
+    },
     "related_party": {
         "label": "前后向是否存在关联关系",
         "required": True,
@@ -102,6 +118,14 @@ FIELD_DEFINITIONS = {
         "applies_to": ["system_integration", "software_development", "equipment_sales"],
         "options": ["yes", "no", "uncertain"],
         "options_label": ["是", "否", "不确定"]
+    },
+    "acceptance_content_same": {
+        "label": "是否计划直接使用供应商验收材料向客户交验",
+        "required": True,
+        "applies_to": ["system_integration", "software_development", "service"],
+        "options": ["yes", "no", "uncertain"],
+        "options_label": ["是（直接转交，不做二次加工）", "否（电信独立编制客户验收报告）", "不确定"],
+        "hint": "前瞻性风险提示：若计划将供应商提供的验收材料原样转给客户，验收交付自主性缺失，审计时会被视为「空转走单」证据。建议：电信基于供应商交付物独立编制面向客户的验收报告。同时确保后向验收（供应商交付确认）早于前向验收（客户签收）完成，避免倒签风险。"
     },
     "project_location": {
         "label": "项目实施地点",
@@ -429,6 +453,8 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 - customer_type: "state_owned"（国企）| "private"（民企）| "institution"（事业单位）| "other"
 - supplier_confirmed: true | false
 - procurement_method: 电信对实施方/供应商的后向采购。"open_bid"（公开招标）| "sole_source"（单一来源）| "comparison"（比选）| "collective"（集采）
+- forward_bidding_type: 前向客户对电信的采购方式（不要与 procurement_method 混淆）。"public_bid"（公开招标）| "negotiation"（谈判/议标）| "other"（其他）
+- contract_matches_bpm: 前向合同客户与BPM商机客户是否一致。"yes"（一致或计划保持一致）| "no"（不一致）| "uncertain"（不确定/尚未签订）
 - related_party: "yes" | "no" | "uncertain"
 - gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_4_5"（4-5%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）
 - revenue_recognition: "point_in_time"（时点法）| "over_time"（时段法）| "mixed" | "uncertain"
@@ -436,6 +462,7 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 - has_telecom_capability: "yes" | "no" | "partial"
 - capability_ratio: "all_external"（全外采）| "very_low"（极低）| "medium"（中等）| "high"（较高）
 - contract_content_same: "yes" | "no" | "uncertain"
+- acceptance_content_same: "yes"（计划直接用供应商验收材料交客户）| "no"（电信独立编制客户验收报告）| "uncertain"
 - project_location: "local"（本地）| "remote_with_capability"（异地有实施能力）| "remote_without_capability"（异地无实施能力）
 - scheme_reviewed: "yes" | "no" | "planned"
 - hardware_construction: true | false

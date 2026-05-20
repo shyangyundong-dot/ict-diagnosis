@@ -66,6 +66,21 @@ FIELD_VALUE_LABELS = {
         "high": "较高",
     },
     "contract_content_same": {"yes": "是", "no": "否", "uncertain": "不确定"},
+    "acceptance_content_same": {
+        "yes": "是（直接转交，不做二次加工）",
+        "no": "否（电信独立编制客户验收报告）",
+        "uncertain": "不确定",
+    },
+    "forward_bidding_type": {
+        "public_bid": "公开招标",
+        "negotiation": "谈判/议标",
+        "other": "其他",
+    },
+    "contract_matches_bpm": {
+        "yes": "是（一致 / 计划保持一致）",
+        "no": "否（不一致）",
+        "uncertain": "不确定 / 尚未签订",
+    },
     "project_location": {
         "local": "本地",
         "remote_with_capability": "异地（电信有实施能力）",
@@ -107,6 +122,9 @@ FIELD_LABELS = {
     "has_telecom_capability": "是否有电信自有产品或能力融入",
     "capability_ratio": "自有能力占比估算",
     "contract_content_same": "前后向合同内容是否高度一致",
+    "acceptance_content_same": "是否计划直接使用供应商验收材料向客户交验",
+    "forward_bidding_type": "前向客户的采购方式",
+    "contract_matches_bpm": "前向合同客户与BPM商机客户是否一致",
     "project_location": "项目实施地点",
     "scheme_reviewed": "方案是否经过中台把关/评审",
     "hardware_construction": "是否含硬件/施工类内容",

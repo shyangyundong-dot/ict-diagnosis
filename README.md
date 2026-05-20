@@ -54,7 +54,7 @@ ict-diagnosis/
 │   │   └── diagnosis.py        # API 路由
 │   └── rules/
 │       ├── engine.py           # 规则引擎核心
-│       ├── rules.json          # 规则库（R01-R30）
+│       ├── rules.json          # 规则库（R01-R37，跳号 R04/R33，当前 v1.6）
 │       └── clauses.json        # 条款原文库
 ├── frontend/
 │   ├── index.html
@@ -79,13 +79,21 @@ ict-diagnosis/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/chat` | 对话，返回AI回复和提取字段 |
-| POST | `/api/confirm` | 用户确认字段，提交诊断 |
-| GET  | `/api/diagnose/{id}` | 获取历史诊断报告 |
-| GET  | `/api/diagnose/by-bpm?bpm_id=` | 按 BPM 商机编码列出历史诊断摘要（可多条） |
+| POST | `/api/confirm` | 用户确认字段，提交诊断；`project_type` 缺失时返回 400 |
+| GET  | `/api/diagnose/{id}` | 获取历史诊断报告（含 `manual_check_rules` 字段） |
+| GET  | `/api/diagnose/by-bpm?bpm_id=` | 按 BPM 商机编码列出历史诊断摘要（大小写不敏感） |
 | GET  | `/api/diagnose/{id}/traceability` | 填报溯源：确认字段 + 对话快照（不写入报告正文） |
+| POST | `/api/diagnose/{id}/review` | 提交人工复核结论（confirmed / partial / overridden） |
+| GET  | `/api/diagnose/{id}/reviews` | 查询某条诊断的所有人工复核记录 |
 | GET  | `/api/report/{id}/html` | 获取HTML格式报告 |
 | GET  | `/api/report/{id}/pdf` | 下载PDF报告 |
 | GET  | `/api/health` | 健康检查 |
+
+**`/api/confirm` 与 `/api/diagnose/{id}` 响应中的关键字段：**
+- `triggered_rules`：自动触发的风险规则列表
+- `manual_check_rules`：需人工逐项核查的规则列表（系统无法自动判断，报告中独立展示）
+- `tips`：操作提示（不计入风险等级）
+- `audit_checklist`：汇总审计材料清单
 
 完整接口文档：http://localhost:8000/docs
 
@@ -120,3 +128,5 @@ pip install weasyprint
 - `data/diagnosis.db` 为诊断留痕数据库，请定期备份；每条诊断含提交时的结构化字段（`input_json`）与对话快照（`chat_snapshot_json`），可通过 `GET /api/diagnose/{id}/traceability` 或前端「填报溯源」查询，**不写入合规报告正文**
 - 当前为本地开发版本，生产部署需收紧 CORS 设置
 - 规则版本号记录在每条诊断记录中，便于审计追溯
+- BPM 商机编号在写入和查询时均统一转为大写，输入大小写不影响查询结果
+- 规则库中标注 `"logic": "MANUAL"` 的规则（如 R01 虚假项目）系统无法自动判断，诊断报告中以「人工核查项目」板块单独列出，不计入自动风险等级

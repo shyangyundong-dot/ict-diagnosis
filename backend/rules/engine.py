@@ -31,6 +31,11 @@ REALTIME_WARNINGS: dict[str, dict] = {
         "message": "⚠️ 前后向合同内容高度一致，是\"过手项目\"核心判断依据，高风险。请准备电信自主完成的增值服务证明。",
         "level": "high",
     },
+    "acceptance_content_same": {
+        "trigger_value": "yes",
+        "message": "⚠️ 计划直接用供应商验收材料交客户，验收交付自主性缺失，审计时会被视为\"空转走单\"证据。建议由电信独立编制客户验收报告，并确保后向验收早于前向验收。",
+        "level": "medium",
+    },
     "logistics_control": {
         "trigger_value": "supplier_direct",
         "message": "⚠️ 供应商直发客户，物权流转不经电信，属于\"走单/空转\"高风险特征，不得全额列收。",
