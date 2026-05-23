@@ -8,6 +8,8 @@
 
 给广州电信云中台团队使用的内部工具，通过 AI 对话收集 ICT 项目的结构化字段，用规则引擎做合规风险诊断，再用 AI 生成个性化报告。不对外部开放。
 
+2026-05-23 上线账号与权限管理模块（角色 + 线条隔离 + admin 后台），不再是匿名工具。
+
 ---
 
 ## 快速启动
@@ -18,25 +20,31 @@
 # 后端：http://localhost:8000/docs
 ```
 
-`.env` 在 `backend/` 目录下，需配置 `DEEPSEEK_API_KEY`。
+`.env` 在 `backend/` 目录下。除原有 `DEEPSEEK_API_KEY` 外，需配置：
+- `JWT_SECRET`（必填）—— `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成
+- `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD` —— 首次启动若 user 表为空时自举 admin
+- `CORS_ALLOWED_ORIGINS` —— 生产部署必填，逗号分隔；未配置时回退开发白名单 `localhost:5173`
+
+完整变量见 `backend/.env.example`。
 
 ---
 
 ## 技术栈
 
 - **后端**：FastAPI + SQLite（SQLAlchemy ORM）+ DeepSeek API
-- **前端**：Vue 3 + Vite（无 TypeScript，无状态管理库）
+- **前端**：Vue 3 + Vite（无 TypeScript，无状态管理库；用 `composables/useAuth.js` 管全局 user 态）
 - **AI**：DeepSeek `deepseek-chat`，用于对话收集字段和生成个性化报告分析
 - **PDF**：WeasyPrint（可选，未安装时降级为 HTML 下载）
+- **认证**：JWT (HS256) + bcrypt + localStorage；7 天有效期；登出仅前端清理；禁号即时生效（每次请求查 `is_active`）
 
 ---
 
 ## 核心流程
 
 ```
-用户自然语言描述 → DeepSeek 提取结构化字段 → 用户确认
+登录 → 用户自然语言描述 → DeepSeek 提取结构化字段 → 用户确认
 → 规则引擎 run_diagnosis() → DeepSeek AI 个性化分析
-→ 报告写入数据库 → 前端展示 / PDF 下载
+→ 报告写入数据库（含 created_by + line_id 快照）→ 前端按角色过滤展示 / PDF 下载
 ```
 
 ---
@@ -61,46 +69,110 @@
 - AI 分析完成才返回响应，可能需要 30–90 秒——这是设计意图，报告必须完整
 - 对话历史全部作为 AI 分析上下文（不截断条数，每条限 500 字）
 
+### 账号与权限（2026-05-23 上线）
+- **三级角色**：`admin`（全权 + 管账号）/ `reviewer`（线条主管）/ `user`（员工）
+- **数据隔离**：user 仅看自己创建的；reviewer 看自己 + 本线条内全员；admin 全部（含 `created_by IS NULL` 存量）
+- **诊断 `line_id` 是创建时快照**：员工调线条后旧诊断**留原线条**，新诊断走新线条（审计原则）
+- **`created_by IS NULL` 是「上线前存量数据」**：admin 唯一可见；可通过「存量认领」批量归属
+- **删用户 / 删线条永远软删**（`is_active=false`）；硬删会破坏审计链
+- **JWT 不维护黑名单**：禁号即时生效靠 `is_active` 而非 token 失效
+- **复核写权限**：仅 admin 与本线条 reviewer；user 提交复核会被 403
+- **首次登录强制改密**：admin 创建账号 / 重置密码时置 `must_change_password=true`
+- 完整设计见本地 `docs/auth-and-rbac-design.md`（gitignored，未入库）
+
 ### 数据库
 - SQLite，文件在 `data/diagnosis.db`
-- 三张表：`diagnosis_records`（诊断记录）、`chat_sessions`（对话会话）、`dissent_records`（人工复核）
+- **六张表**：
+  - `users`（账号）
+  - `lines`（组织线条）
+  - `admin_audit_log`（admin 写操作审计，读不记）
+  - `diagnosis_records`（诊断记录；新增 `created_by` + `line_id` 快照字段，`created_by NULL` 表示存量）
+  - `chat_sessions`（对话会话；新增 `created_by`）
+  - `dissent_records`（人工复核；新增 `reviewer_user_id` 外键，旧 `reviewer_id` 字符串字段保留兼容）
 - 会话自动清理：`status=collecting` 且 24 小时未更新的会话每 6 小时清理一次
+- 启动 schema 迁移在 `database._migrate_sqlite()` 中幂等执行
 
 ---
 
 ## API 路由清单
 
+### 认证 / 当前用户
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/chat` | 对话，提取字段 |
-| PATCH | `/api/session/{id}/fields` | 手动修改字段（不触发对话） |
-| GET | `/api/field-definitions` | 返回字段定义（前端下拉渲染用） |
-| POST | `/api/confirm` | 确认提交，触发诊断 |
-| GET | `/api/diagnose/{id}` | 读取历史报告 |
-| GET | `/api/diagnose/by-bpm` | 按 BPM 编号查历史（大小写不敏感） |
+| POST | `/api/auth/login` | 登录，返回 `{ token, user }` |
+| POST | `/api/auth/change-password` | 改自己的密码（需旧密码） |
+| GET | `/api/me` | 当前用户 profile |
+
+### 诊断核心
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/chat` | 对话，提取字段（仅创建者可续写） |
+| PATCH | `/api/session/{id}/fields` | 手动修改字段（仅创建者） |
+| GET | `/api/field-definitions` | 返回字段定义 |
+| POST | `/api/confirm` | 确认提交，触发诊断（写入 `created_by` + 快照 `line_id`） |
+| GET | `/api/diagnose/{id}` | 读取历史报告（按角色过滤） |
+| GET | `/api/diagnoses` | **合并列表**，按角色自动过滤行 + 分页 |
+| GET | `/api/diagnose/by-bpm` | 按 BPM 编号查历史（大小写不敏感，按角色过滤） |
 | GET | `/api/diagnose/{id}/traceability` | 填报溯源（字段 + 对话快照） |
-| POST | `/api/diagnose/{id}/review` | 提交人工复核结论 |
+| POST | `/api/diagnose/{id}/review` | 提交人工复核结论（仅 admin 与本线条 reviewer） |
 | GET | `/api/diagnose/{id}/reviews` | 查询复核记录 |
 | GET | `/api/report/{id}/html` | HTML 报告 |
-| GET | `/api/report/{id}/pdf` | PDF 下载 |
-| GET | `/api/health` | 健康检查 |
+| GET | `/api/report/{id}/pdf` | PDF 下载（前端走 blob，带 Authorization） |
+| GET | `/api/health` | 健康检查（**唯一公开端点**） |
+
+### Admin 后台（`require_admin` 守卫）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET / POST | `/api/admin/lines` | 列表 / 新建 |
+| PATCH | `/api/admin/lines/{id}` | 改名 / 启用禁用 |
+| GET / POST | `/api/admin/users` | 列表 / 新建 |
+| GET / PATCH | `/api/admin/users/{id}` | 详情 / 改 role/line/active |
+| POST | `/api/admin/users/{id}/reset-password` | 重置密码（置 `must_change_password=true`） |
+| GET | `/api/admin/users/{id}/activity` | 该账号的诊断 / 复核 / 对话三栏 |
+| GET | `/api/admin/audit` | 审计日志查询（admin / action / 日期 三组筛选） |
+| GET | `/api/admin/legacy` | 列出 `created_by IS NULL` 的存量诊断 |
+| POST | `/api/admin/legacy/claim` | 批量归属存量诊断 |
+
+权限语义：越权（不是 403 而是）**404**，避免泄漏「这条记录存在但你看不到」。复核写权限例外，明确返回 403。
 
 ---
 
 ## 前端页面
 
-| 文件 | 路由 | 功能 |
-|------|------|------|
-| `ChatView.vue` | `/` | 主对话页，信息收集 + 提交 |
-| `ReportView.vue` | `/report/:id` | 报告展示 + 人工复核弹窗 |
-| `BpmLookupView.vue` | `/lookup` | 按 BPM 查历史诊断 |
-| `TraceabilityView.vue` | `/trace` | 填报溯源 |
+| 文件 | 路由 | 谁能访问 | 功能 |
+|------|------|---------|------|
+| `LoginView.vue` | `/login` | 公开 | 登录（未登录唯一可访问的路由） |
+| `ChangePasswordView.vue` | `/profile/password` | 任何登录用户 | 改密；`must_change_password=true` 时强制跳转 |
+| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 提交 |
+| `DiagnosesView.vue` | `/diagnoses` | 任何登录用户 | 合并列表，按角色过滤行 |
+| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示 + 人工复核弹窗（PDF 下载用 blob） |
+| `BpmLookupView.vue` | `/lookup` | 任何登录用户 | 按 BPM 查历史诊断（后端按角色过滤结果） |
+| `TraceabilityView.vue` | `/trace` | 权限内可访问 | 填报溯源 |
+| `AdminLinesView.vue` | `/admin/lines` | admin | 线条 CRUD |
+| `AdminUsersView.vue` | `/admin/users` | admin | 账号 CRUD + 重置密码 |
+| `AdminUserDetailView.vue` | `/admin/users/:id` | admin | 账号详情（三标签页活动记录） |
+| `AdminLegacyClaimView.vue` | `/admin/legacy-claim` | admin | 存量诊断批量认领 |
+| `AdminAuditView.vue` | `/admin/audit` | admin | 审计日志查询 |
+
+全局组件：
+- 顶栏 `App.vue`：左侧导航 + 右侧用户菜单（display_name + 角色 + 改密 + 登出）；admin 区入口仅 admin 可见
+- `composables/useAuth.js`：基于 `reactive` 的全局 user 态 + localStorage token；`api/diagnosis.js` 通过 axios 拦截器自动注入 `Authorization`，401 自动登出
+- `main.js` 路由守卫：未登录跳 `/login`；`must_change_password=true` 强跳改密页；非 admin 访问 `/admin/*` 跳首页
+
+---
+
+## 部署相关
+
+- Nginx 反代示例：`deploy/nginx.ict-diagnosis.conf.example`（前端静态 + 后端 `/api` 同源代理）
+- 代码审查打包脚本：`scripts/make-review-bundle.sh`
+- start.sh 用 `--reload-exclude '.venv'` 避免误重载
 
 ---
 
 ## 注意事项
 
-- `.env` 含 API Key，永远不提交 Git
-- 生产部署需收紧 CORS（当前全开放）
+- `.env` 含敏感信息（DeepSeek key、JWT_SECRET、初始 admin 密码），永远不提交 Git；已在 `.gitignore`
+- **CORS 已从 `["*"]` 改为 env 驱动白名单**（`CORS_ALLOWED_ORIGINS`）；生产部署必须显式配置
 - `data/diagnosis.db` 需定期备份
 - 二期规划（N1–N6 逐项举证评分等）见 `docs/phase2-memo-service-capability-level.md`
+- 账号与权限模块完整设计见 `docs/auth-and-rbac-design.md`（两份 docs 都 gitignored，是本地参考；不提交是 项目惯例）
