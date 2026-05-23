@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from auth import hash_password
 from database import SessionLocal, init_db
 from models.diagnosis import User
+from routers.admin import router as admin_router
 from routers.auth import router as auth_router
 from routers.diagnosis import router
 from session_cleanup import cleanup_stale_chat_sessions
@@ -16,9 +17,19 @@ logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="ICT项目合规诊断工具", version="1.0.0")
 
+# CORS 白名单：未配置时使用开发兜底，生产部署必须在 .env 配 CORS_ALLOWED_ORIGINS
+_cors_raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
+_cors_allowed = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not _cors_allowed:
+    _cors_allowed = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    logger.warning(
+        "CORS_ALLOWED_ORIGINS 未配置，回退到开发白名单 %s。生产部署必须在 .env 中显式配置。",
+        _cors_allowed,
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_allowed,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,4 +89,5 @@ async def startup():
     asyncio.create_task(_periodic_chat_session_cleanup())
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(router)

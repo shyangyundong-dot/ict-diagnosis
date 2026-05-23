@@ -5,6 +5,11 @@
         <router-link to="/" class="brand">🛡 ICT 合规诊断</router-link>
         <router-link to="/lookup" class="nav-link">BPM 查询</router-link>
         <router-link to="/trace" class="nav-link">填报溯源</router-link>
+        <template v-if="isAdmin">
+          <span class="nav-sep">|</span>
+          <router-link to="/admin/lines" class="nav-link">线条管理</router-link>
+          <router-link to="/admin/users" class="nav-link">账号管理</router-link>
+        </template>
       </div>
       <div class="app-header-right" v-if="state.user">
         <span class="user-chip">
@@ -40,6 +45,8 @@ const roleLabel = computed(() => {
   if (!state.user) return ''
   return { admin: '管理员', reviewer: '主管', user: '员工' }[state.user.role] || state.user.role
 })
+
+const isAdmin = computed(() => state.user?.role === 'admin')
 
 function onLogout() {
   logout()
@@ -124,6 +131,7 @@ body {
 }
 .nav-link:hover { background: var(--slate-100); color: var(--slate-800); }
 .nav-link.router-link-active { color: var(--blue-700); background: var(--blue-50); }
+.nav-sep { color: var(--slate-300); font-size: 12px; user-select: none; }
 
 .app-header-right { display: flex; align-items: center; gap: 10px; }
 .user-chip {
