@@ -9,6 +9,9 @@ import LoginView from './views/LoginView.vue'
 import ChangePasswordView from './views/ChangePasswordView.vue'
 import AdminLinesView from './views/AdminLinesView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
+import AdminUserDetailView from './views/AdminUserDetailView.vue'
+import AdminAuditView from './views/AdminAuditView.vue'
+import AdminLegacyClaimView from './views/AdminLegacyClaimView.vue'
 import DiagnosesView from './views/DiagnosesView.vue'
 import { useAuth } from './composables/useAuth'
 
@@ -25,6 +28,9 @@ const router = createRouter({
     { path: '/report/:id', component: ReportView },
     { path: '/admin/lines', component: AdminLinesView, meta: { admin: true } },
     { path: '/admin/users', component: AdminUsersView, meta: { admin: true } },
+    { path: '/admin/users/:id', component: AdminUserDetailView, meta: { admin: true } },
+    { path: '/admin/audit', component: AdminAuditView, meta: { admin: true } },
+    { path: '/admin/legacy-claim', component: AdminLegacyClaimView, meta: { admin: true } },
   ],
 })
 

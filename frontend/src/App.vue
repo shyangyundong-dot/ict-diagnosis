@@ -10,6 +10,8 @@
           <span class="nav-sep">|</span>
           <router-link to="/admin/lines" class="nav-link">线条管理</router-link>
           <router-link to="/admin/users" class="nav-link">账号管理</router-link>
+          <router-link to="/admin/legacy-claim" class="nav-link">存量认领</router-link>
+          <router-link to="/admin/audit" class="nav-link">审计日志</router-link>
         </template>
       </div>
       <div class="app-header-right" v-if="state.user">

@@ -22,7 +22,7 @@
       </thead>
       <tbody>
         <tr v-for="u in items" :key="u.id" :class="{ inactive: !u.is_active }">
-          <td>{{ u.username }}</td>
+          <td><router-link :to="`/admin/users/${u.id}`" class="btn-link">{{ u.username }}</router-link></td>
           <td>{{ u.display_name }}</td>
           <td>
             <span class="badge" :class="`badge-role-${u.role}`">{{ roleLabel(u.role) }}</span>
