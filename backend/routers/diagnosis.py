@@ -4,11 +4,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord, User
+from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord, Line, User
 from rules.engine import run_diagnosis, RULE_VERSION, get_realtime_warnings
 from ai_chat import (
     chat_with_ai,
@@ -24,6 +25,60 @@ from report_generator import generate_report_html, generate_pdf
 from ai_report import enrich_diagnosis_with_ai
 
 router = APIRouter(prefix="/api")
+
+
+# ── 权限辅助 ──────────────────────────────────────────────────
+# 数据隔离规则（设计文档 §3）：
+#   user      → 仅自己创建的
+#   reviewer  → 自己创建的 + 本线条内所有员工创建的
+#   admin     → 全部（含 created_by IS NULL 的存量数据）
+# 拒绝访问统一返回 404，避免泄漏「这条记录存在但你看不到」。
+
+def filter_diagnoses_for_user(q, user: User):
+    """给 DiagnosisRecord 查询追加按角色与线条的过滤。"""
+    if user.role == "admin":
+        return q
+    if user.role == "reviewer" and user.line_id is not None:
+        return q.filter(
+            or_(
+                DiagnosisRecord.created_by == user.id,
+                DiagnosisRecord.line_id == user.line_id,
+            )
+        )
+    # user 或 reviewer 但无 line_id → 只看自己
+    return q.filter(DiagnosisRecord.created_by == user.id)
+
+
+def can_access_diagnosis(user: User, record: DiagnosisRecord) -> bool:
+    if user.role == "admin":
+        return True
+    if record.created_by == user.id:
+        return True
+    if (
+        user.role == "reviewer"
+        and user.line_id is not None
+        and record.line_id == user.line_id
+    ):
+        return True
+    return False
+
+
+def can_review_diagnosis(user: User, record: DiagnosisRecord) -> bool:
+    """写复核：仅 admin 与 reviewer（且必须在该诊断所在的线条）。"""
+    if user.role == "admin":
+        return True
+    if (
+        user.role == "reviewer"
+        and user.line_id is not None
+        and record.line_id == user.line_id
+    ):
+        return True
+    return False
+
+
+def can_resume_session(user: User, session: ChatSession) -> bool:
+    """ChatSession 只允许创建者继续编辑。admin 也不能续别人的对话（避免误篡）。"""
+    return session.created_by is not None and session.created_by == user.id
 
 
 # ── Pydantic 模型 ──────────────────────────────────────────────
@@ -61,6 +116,9 @@ async def chat(
 
     session_id = body.session_id or str(uuid.uuid4())
     session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+
+    if session and not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     if not session:
         session = ChatSession(
@@ -137,7 +195,7 @@ async def patch_session_fields(
 ):
     """仅更新结构化字段（右侧手工修改），不触发对话。"""
     session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
-    if not session:
+    if not session or not can_resume_session(user, session):
         raise HTTPException(status_code=404, detail="会话不存在")
 
     current_fields: dict = json.loads(session.extracted_fields_json)
@@ -184,7 +242,7 @@ async def confirm_and_diagnose(
     """用户确认字段后提交诊断"""
 
     session = db.query(ChatSession).filter(ChatSession.session_id == body.session_id).first()
-    if not session:
+    if not session or not can_resume_session(user, session):
         raise HTTPException(status_code=404, detail="会话不存在")
 
     fields = dict(body.fields)
@@ -265,10 +323,13 @@ async def submit_review(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """审核人员提交人工复核结论（一致 / 部分采纳 / 推翻）"""
+    """审核人员提交人工复核结论（一致 / 部分采纳 / 推翻）。
+    仅 admin 与 reviewer（且诊断属于该 reviewer 的线条）可写。"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
-    if not record:
+    if not record or not can_access_diagnosis(user, record):
         raise HTTPException(status_code=404, detail="诊断记录不存在")
+    if not can_review_diagnosis(user, record):
+        raise HTTPException(status_code=403, detail="仅主管或管理员可提交复核")
 
     if body.review_result not in ("confirmed", "partial", "overridden"):
         raise HTTPException(status_code=400, detail="review_result 须为 confirmed / partial / overridden")
@@ -304,6 +365,10 @@ async def list_reviews(
     user: User = Depends(get_current_user),
 ):
     """查询某条诊断记录的所有复核记录"""
+    record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
+    if not record or not can_access_diagnosis(user, record):
+        raise HTTPException(status_code=404, detail="诊断记录不存在")
+
     records = (
         db.query(DissentRecord)
         .filter(DissentRecord.diagnosis_id == diagnosis_id)
@@ -325,7 +390,57 @@ async def list_reviews(
     return {"diagnosis_id": diagnosis_id, "count": len(items), "items": items}
 
 
-# ── 查询接口 ───────────────────────────────────────────────────
+# ── 列表接口 ───────────────────────────────────────────────────
+
+def _serialize_diagnosis_summary(rec: DiagnosisRecord, creator: User | None) -> dict:
+    try:
+        result = json.loads(rec.result_json)
+    except Exception:
+        result = {}
+    if creator:
+        creator_display = creator.display_name
+    elif rec.created_by is None:
+        creator_display = "[存量数据]"
+    else:
+        creator_display = f"[已删除#{rec.created_by}]"
+    return {
+        "diagnosis_id": rec.id,
+        "bpm_id": rec.bpm_id,
+        "project_type": rec.project_type,
+        "overall_risk": rec.overall_risk,
+        "overall_risk_label": result.get("overall_risk_label", ""),
+        "rule_version": rec.rule_version,
+        "created_at": rec.created_at.strftime("%Y-%m-%d %H:%M") if rec.created_at else "",
+        "created_by": rec.created_by,
+        "creator_display_name": creator_display,
+        "line_id": rec.line_id,
+    }
+
+
+@router.get("/diagnoses")
+async def list_diagnoses(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """合并列表：按角色自动过滤（user 看自己，reviewer 看本线条，admin 看全部）。"""
+    base = filter_diagnoses_for_user(db.query(DiagnosisRecord), user)
+    total = base.count()
+    records = (
+        base.order_by(DiagnosisRecord.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    creator_ids = {r.created_by for r in records if r.created_by}
+    creators = (
+        {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()}
+        if creator_ids else {}
+    )
+    items = [_serialize_diagnosis_summary(r, creators.get(r.created_by)) for r in records]
+    return {"total": total, "limit": limit, "offset": offset, "items": items}
+
 
 @router.get("/diagnose/by-bpm")
 async def list_diagnoses_by_bpm(
@@ -337,28 +452,18 @@ async def list_diagnoses_by_bpm(
     if not key:
         raise HTTPException(status_code=400, detail="请提供 BPM 商机编码")
 
+    base = filter_diagnoses_for_user(db.query(DiagnosisRecord), user)
     records = (
-        db.query(DiagnosisRecord)
-        .filter(DiagnosisRecord.bpm_id == key)
+        base.filter(DiagnosisRecord.bpm_id == key)
         .order_by(DiagnosisRecord.created_at.desc())
         .all()
     )
-
-    items = []
-    for rec in records:
-        result = json.loads(rec.result_json)
-        items.append(
-            {
-                "diagnosis_id": rec.id,
-                "bpm_id": rec.bpm_id,
-                "project_type": rec.project_type,
-                "overall_risk": rec.overall_risk,
-                "overall_risk_label": result.get("overall_risk_label", ""),
-                "rule_version": rec.rule_version,
-                "created_at": rec.created_at.strftime("%Y-%m-%d %H:%M") if rec.created_at else "",
-            }
-        )
-
+    creator_ids = {r.created_by for r in records if r.created_by}
+    creators = (
+        {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()}
+        if creator_ids else {}
+    )
+    items = [_serialize_diagnosis_summary(r, creators.get(r.created_by)) for r in records]
     return {"bpm_id": key, "count": len(items), "items": items}
 
 
@@ -370,7 +475,7 @@ async def get_diagnosis_traceability(
 ):
     """填报溯源：返回提交时的确认字段与对话快照。"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
-    if not record:
+    if not record or not can_access_diagnosis(user, record):
         raise HTTPException(status_code=404, detail="诊断记录不存在")
 
     try:
@@ -411,7 +516,7 @@ async def get_diagnosis(
 ):
     """按ID读取历史诊断报告"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
-    if not record:
+    if not record or not can_access_diagnosis(user, record):
         raise HTTPException(status_code=404, detail="报告不存在")
 
     result = json.loads(record.result_json)
@@ -440,7 +545,7 @@ async def get_report_html(
 ):
     """获取HTML格式报告"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
-    if not record:
+    if not record or not can_access_diagnosis(user, record):
         raise HTTPException(status_code=404, detail="报告不存在")
     result = json.loads(record.result_json)
     created_at = record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else ""
@@ -456,7 +561,7 @@ async def get_report_pdf(
 ):
     """获取PDF格式报告"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
-    if not record:
+    if not record or not can_access_diagnosis(user, record):
         raise HTTPException(status_code=404, detail="报告不存在")
     result = json.loads(record.result_json)
     created_at = record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else ""

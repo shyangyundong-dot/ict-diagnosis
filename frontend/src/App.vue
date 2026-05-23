@@ -3,6 +3,7 @@
     <header v-if="showHeader" class="app-header">
       <div class="app-header-left">
         <router-link to="/" class="brand">🛡 ICT 合规诊断</router-link>
+        <router-link to="/diagnoses" class="nav-link">诊断列表</router-link>
         <router-link to="/lookup" class="nav-link">BPM 查询</router-link>
         <router-link to="/trace" class="nav-link">填报溯源</router-link>
         <template v-if="isAdmin">

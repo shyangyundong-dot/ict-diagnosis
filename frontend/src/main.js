@@ -9,6 +9,7 @@ import LoginView from './views/LoginView.vue'
 import ChangePasswordView from './views/ChangePasswordView.vue'
 import AdminLinesView from './views/AdminLinesView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
+import DiagnosesView from './views/DiagnosesView.vue'
 import { useAuth } from './composables/useAuth'
 
 const router = createRouter({
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: '/login', component: LoginView, meta: { public: true } },
     { path: '/profile/password', component: ChangePasswordView },
     { path: '/', component: ChatView },
+    { path: '/diagnoses', component: DiagnosesView },
     { path: '/lookup', component: BpmLookupView },
     { path: '/trace', component: TraceabilityView },
     { path: '/trace/:id', component: TraceabilityView },
