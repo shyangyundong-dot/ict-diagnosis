@@ -1,12 +1,17 @@
 import asyncio
+import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import init_db
+from auth import hash_password
+from database import SessionLocal, init_db
+from models.diagnosis import User
 from routers.diagnosis import router
 from session_cleanup import cleanup_stale_chat_sessions
+
+logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="ICT项目合规诊断工具", version="1.0.0")
 
@@ -31,9 +36,40 @@ async def _periodic_chat_session_cleanup():
             pass
 
 
+def _bootstrap_initial_admin():
+    """user 表为空时，根据环境变量创建首个 admin。幂等。"""
+    username = os.getenv("INITIAL_ADMIN_USERNAME")
+    password = os.getenv("INITIAL_ADMIN_PASSWORD")
+    db = SessionLocal()
+    try:
+        if db.query(User).count() > 0:
+            return
+        if not username or not password:
+            logger.warning(
+                "user 表为空，但 INITIAL_ADMIN_USERNAME / INITIAL_ADMIN_PASSWORD 未配置；"
+                "请在 .env 中设置后重启，否则无法登录。"
+            )
+            return
+        admin = User(
+            username=username,
+            password_hash=hash_password(password),
+            display_name=username,
+            role="admin",
+            line_id=None,
+            is_active=True,
+            must_change_password=True,  # 首次登录强制改密
+        )
+        db.add(admin)
+        db.commit()
+        logger.info("已根据 .env 创建首个 admin 账号：%s（首次登录需改密）", username)
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 async def startup():
     init_db()
+    _bootstrap_initial_admin()
     try:
         cleanup_stale_chat_sessions()
     except Exception:
