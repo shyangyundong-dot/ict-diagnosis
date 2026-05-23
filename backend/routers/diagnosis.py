@@ -6,8 +6,9 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from auth import get_current_user
 from database import get_db
-from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord
+from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord, User
 from rules.engine import run_diagnosis, RULE_VERSION, get_realtime_warnings
 from ai_chat import (
     chat_with_ai,
@@ -42,7 +43,6 @@ class ConfirmSubmit(BaseModel):
 
 class ReviewSubmit(BaseModel):
     """人工复核与异议提交（规格 §7）"""
-    reviewer_id: str | None = None          # MVP 阶段可选
     review_result: str                       # confirmed | partial | overridden
     risk_point_ids: list[str] | None = None  # 被推翻的 rule_id 列表
     manual_conclusion: str | None = None
@@ -52,7 +52,11 @@ class ReviewSubmit(BaseModel):
 # ── 对话接口 ───────────────────────────────────────────────────
 
 @router.post("/chat")
-async def chat(body: ChatMessage, db: Session = Depends(get_db)):
+async def chat(
+    body: ChatMessage,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """对话式收集项目信息"""
 
     session_id = body.session_id or str(uuid.uuid4())
@@ -64,6 +68,7 @@ async def chat(body: ChatMessage, db: Session = Depends(get_db)):
             messages_json="[]",
             extracted_fields_json="{}",
             status="collecting",
+            created_by=user.id,
         )
         db.add(session)
         db.commit()
@@ -124,7 +129,12 @@ async def chat(body: ChatMessage, db: Session = Depends(get_db)):
 
 
 @router.patch("/session/{session_id}/fields")
-async def patch_session_fields(session_id: str, body: SessionFieldsBody, db: Session = Depends(get_db)):
+async def patch_session_fields(
+    session_id: str,
+    body: SessionFieldsBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """仅更新结构化字段（右侧手工修改），不触发对话。"""
     session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
     if not session:
@@ -160,13 +170,17 @@ async def patch_session_fields(session_id: str, body: SessionFieldsBody, db: Ses
 
 
 @router.get("/field-definitions")
-async def field_definitions():
+async def field_definitions(user: User = Depends(get_current_user)):
     """供前端渲染下拉/多选。"""
     return FIELD_DEFINITIONS
 
 
 @router.post("/confirm")
-async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db)):
+async def confirm_and_diagnose(
+    body: ConfirmSubmit,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """用户确认字段后提交诊断"""
 
     session = db.query(ChatSession).filter(ChatSession.session_id == body.session_id).first()
@@ -221,6 +235,8 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
         overall_risk=result["overall_risk"],
         result_json=json.dumps(result, ensure_ascii=False),
         rule_version=RULE_VERSION,
+        created_by=user.id,
+        line_id=user.line_id,  # 创建时快照
     )
     db.add(record)
     db.commit()
@@ -243,7 +259,12 @@ async def confirm_and_diagnose(body: ConfirmSubmit, db: Session = Depends(get_db
 # ── 人工复核与异议接口（规格 §7）─────────────────────────────
 
 @router.post("/diagnose/{diagnosis_id}/review")
-async def submit_review(diagnosis_id: int, body: ReviewSubmit, db: Session = Depends(get_db)):
+async def submit_review(
+    diagnosis_id: int,
+    body: ReviewSubmit,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """审核人员提交人工复核结论（一致 / 部分采纳 / 推翻）"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
     if not record:
@@ -255,7 +276,8 @@ async def submit_review(diagnosis_id: int, body: ReviewSubmit, db: Session = Dep
     dissent = DissentRecord(
         diagnosis_id=diagnosis_id,
         bpm_id=record.bpm_id,
-        reviewer_id=body.reviewer_id or "匿名审核员",
+        reviewer_id=user.display_name,    # 老字符串字段，写入展示名兼容旧报告渲染
+        reviewer_user_id=user.id,         # 新外键字段，是 commit 3 起的权威来源
         review_result=body.review_result,
         risk_point_ids=json.dumps(body.risk_point_ids or [], ensure_ascii=False),
         manual_conclusion=body.manual_conclusion,
@@ -276,7 +298,11 @@ async def submit_review(diagnosis_id: int, body: ReviewSubmit, db: Session = Dep
 
 
 @router.get("/diagnose/{diagnosis_id}/reviews")
-async def list_reviews(diagnosis_id: int, db: Session = Depends(get_db)):
+async def list_reviews(
+    diagnosis_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """查询某条诊断记录的所有复核记录"""
     records = (
         db.query(DissentRecord)
@@ -305,6 +331,7 @@ async def list_reviews(diagnosis_id: int, db: Session = Depends(get_db)):
 async def list_diagnoses_by_bpm(
     bpm_id: str = Query(..., description="BPM 商机编码"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     key = (bpm_id or "").strip().upper()
     if not key:
@@ -336,7 +363,11 @@ async def list_diagnoses_by_bpm(
 
 
 @router.get("/diagnose/{diagnosis_id}/traceability")
-async def get_diagnosis_traceability(diagnosis_id: int, db: Session = Depends(get_db)):
+async def get_diagnosis_traceability(
+    diagnosis_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """填报溯源：返回提交时的确认字段与对话快照。"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
     if not record:
@@ -373,7 +404,11 @@ async def get_diagnosis_traceability(diagnosis_id: int, db: Session = Depends(ge
 
 
 @router.get("/diagnose/{diagnosis_id}")
-async def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)):
+async def get_diagnosis(
+    diagnosis_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """按ID读取历史诊断报告"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
     if not record:
@@ -398,7 +433,11 @@ async def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/report/{diagnosis_id}/html", response_class=HTMLResponse)
-async def get_report_html(diagnosis_id: int, db: Session = Depends(get_db)):
+async def get_report_html(
+    diagnosis_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """获取HTML格式报告"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
     if not record:
@@ -410,7 +449,11 @@ async def get_report_html(diagnosis_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/report/{diagnosis_id}/pdf")
-async def get_report_pdf(diagnosis_id: int, db: Session = Depends(get_db)):
+async def get_report_pdf(
+    diagnosis_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """获取PDF格式报告"""
     record = db.query(DiagnosisRecord).filter(DiagnosisRecord.id == diagnosis_id).first()
     if not record:

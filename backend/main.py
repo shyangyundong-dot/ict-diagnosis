@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from auth import hash_password
 from database import SessionLocal, init_db
 from models.diagnosis import User
+from routers.auth import router as auth_router
 from routers.diagnosis import router
 from session_cleanup import cleanup_stale_chat_sessions
 
@@ -76,4 +77,5 @@ async def startup():
         pass
     asyncio.create_task(_periodic_chat_session_cleanup())
 
+app.include_router(auth_router)
 app.include_router(router)

@@ -10,7 +10,7 @@
         <span v-if="data.is_mixed_project" class="mixed-badge">📦 混合型项目</span>
       </div>
       <div class="topbar-actions">
-        <a :href="`/api/report/${diagnosisId}/pdf`" class="action-btn pdf-btn">⬇ 下载报告</a>
+        <button class="action-btn pdf-btn" :disabled="downloading" @click="onDownloadPdf">{{ downloading ? '下载中...' : '⬇ 下载报告' }}</button>
         <button class="action-btn share-btn" @click="copyLink">{{ copied ? '✅ 已复制' : '🔗 复制链接' }}</button>
         <button class="action-btn review-btn" @click="openReview">📝 标注复核结论</button>
       </div>
@@ -325,7 +325,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, defineComponent, h } from 'vue'
 import { useRoute } from 'vue-router'
-import { getDiagnosis, submitReview } from '../api/diagnosis.js'
+import { getDiagnosis, submitReview, downloadReportPdf } from '../api/diagnosis.js'
 
 // ── 规则体子组件（内联定义，避免单独文件）──
 const RuleBody = defineComponent({
@@ -400,6 +400,19 @@ const error = ref(null)
 const data = ref({})
 const copied = ref(false)
 const expanded = reactive({})
+const downloading = ref(false)
+
+async function onDownloadPdf() {
+  if (downloading.value) return
+  downloading.value = true
+  try {
+    await downloadReportPdf(diagnosisId)
+  } catch (e) {
+    alert(e.response?.data?.detail || '下载失败，请重试')
+  } finally {
+    downloading.value = false
+  }
+}
 
 const hrtConfig = {
   forbidden:       { label: '🚫 禁止做',       desc: '该项目不符合合规条件，不得推进' },
@@ -583,8 +596,9 @@ onMounted(async () => {
   cursor: pointer; text-decoration: none; border: 1px solid var(--slate-200);
   background: #fff; color: var(--slate-600); transition: all 0.15s;
 }
-.action-btn:hover { background: var(--slate-50); }
-.pdf-btn { color: var(--blue-600); border-color: var(--blue-200); background: var(--blue-50); }
+.action-btn:hover:not(:disabled) { background: var(--slate-50); }
+.action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.pdf-btn { color: var(--blue-600); border-color: var(--blue-200); background: var(--blue-50); font-family: inherit; }
 .review-btn { color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff; }
 .review-btn:hover { background: #ede9fe; }
 

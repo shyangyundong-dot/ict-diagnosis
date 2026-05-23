@@ -201,9 +201,9 @@
           <a :href="`/report/${diagnosisId}`" target="_blank" class="report-link">
             📄 在新窗口查看报告
           </a>
-          <a :href="`/api/report/${diagnosisId}/pdf`" class="report-link pdf-link">
-            ⬇️ 下载报告
-          </a>
+          <button class="report-link pdf-link" type="button" :disabled="downloadingPdf" @click="onDownloadPdf">
+            {{ downloadingPdf ? '下载中...' : '⬇️ 下载报告' }}
+          </button>
         </div>
       </div>
     </div>
@@ -225,7 +225,7 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue'
 import FieldControl from '../components/FieldControl.vue'
-import { sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions } from '../api/diagnosis.js'
+import { sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, downloadReportPdf } from '../api/diagnosis.js'
 
 const FIELD_LABELS = {
   bpm_id: 'BPM商机编号', project_type: '项目类型', customer_type: '前向客户类型',
@@ -251,6 +251,19 @@ const submittingHint = ref('')
 const sessionId = ref(null)
 const missingFields = ref([])
 const diagnosisId = ref(null)
+const downloadingPdf = ref(false)
+
+async function onDownloadPdf() {
+  if (!diagnosisId.value || downloadingPdf.value) return
+  downloadingPdf.value = true
+  try {
+    await downloadReportPdf(diagnosisId.value)
+  } catch (e) {
+    alert(e.response?.data?.detail || '下载失败，请重试')
+  } finally {
+    downloadingPdf.value = false
+  }
+}
 const fieldDefinitions = ref({})
 // 实时预警（规格 §12.1）
 const realtimeWarnings = ref([])
@@ -993,17 +1006,21 @@ function resetChat() {
 }
 .report-link {
   display: block;
+  width: 100%;
   text-align: center;
   padding: 9px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
+  font-family: inherit;
   text-decoration: none;
   border: 1px solid var(--slate-200);
   color: var(--blue-600);
   background: var(--blue-50);
   transition: background 0.15s;
+  cursor: pointer;
 }
+.report-link:disabled { opacity: 0.6; cursor: not-allowed; }
 .report-link:hover { background: var(--blue-100); }
 .pdf-link { color: var(--slate-600); background: var(--slate-50); }
 
