@@ -134,6 +134,26 @@
         </div>
       </template>
 
+      <!-- 硬转服务嫌疑（#9，举证式）-->
+      <template v-if="hardToService.length">
+        <div class="section-heading">硬转服务嫌疑 <span class="heading-sub">（需举证，非定性结论）</span></div>
+        <div v-for="(f, i) in hardToService" :key="i" class="hts-card" :class="`hts-${f.suspicion_level}`">
+          <div class="hts-head">
+            <span class="hts-badge">🔎 {{ f.suspicion_label }} · 需举证</span>
+            <span class="hts-unit">{{ f.unit_name }}</span>
+            <span class="hts-amt">{{ f.amount != null ? formatUnitAmount(f.amount) : '' }}</span>
+          </div>
+          <div class="hts-signals">
+            <span v-for="(s, j) in f.signals" :key="j" class="hts-signal">{{ s }}</span>
+          </div>
+          <div class="hts-msg">{{ f.message }}</div>
+          <div class="hts-evidence">
+            <div class="hts-evidence-title">📁 需举证材料</div>
+            <div v-for="(e, k) in f.required_evidence" :key="k" class="hts-evidence-item">☐ {{ e }}</div>
+          </div>
+        </div>
+      </template>
+
       <!-- ===== 分段模式（AI丰富化成功）===== -->
       <template v-if="data.segments && data.segments.length">
         <div class="section-heading">风险详情分析
@@ -455,6 +475,9 @@ function formatUnitAmount(amt) {
   const n = Number(amt)
   return Number.isFinite(n) ? `${n.toLocaleString()} 元` : `${amt} 元`
 }
+
+// 硬转服务嫌疑（#9，举证式）
+const hardToService = computed(() => data.value.hard_to_service || [])
 
 // 计算总风险条数（支持segments和平铺两种数据结构）
 const totalTriggered = computed(() => {
@@ -815,6 +838,26 @@ onMounted(async () => {
   font-size: 11px; padding: 2px 10px; border-radius: 10px;
   background: var(--slate-200); color: var(--slate-600); white-space: nowrap;
 }
+
+/* ── 硬转服务嫌疑（#9，举证式）── */
+.hts-card {
+  border: 1px solid #fcd9b6; border-left: 4px solid #f59e0b;
+  border-radius: 10px; background: #fffbeb; padding: 14px 16px; margin-bottom: 12px;
+}
+.hts-card.hts-high { border-left-color: #ea580c; background: #fff7ed; }
+.hts-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.hts-badge {
+  font-size: 12px; padding: 3px 10px; border-radius: 12px;
+  background: #f59e0b; color: #fff; font-weight: 600; white-space: nowrap;
+}
+.hts-unit { font-size: 14px; font-weight: 700; color: #92400e; flex: 1; }
+.hts-amt { font-size: 12px; color: #b45309; }
+.hts-signals { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.hts-signal { font-size: 11px; padding: 2px 8px; border-radius: 8px; background: #fef3c7; color: #b45309; }
+.hts-msg { font-size: 13px; color: var(--slate-600); line-height: 1.7; margin-bottom: 10px; }
+.hts-evidence { border-top: 1px solid #fcd9b6; padding-top: 8px; }
+.hts-evidence-title { font-size: 12px; font-weight: 600; color: #92400e; margin-bottom: 4px; }
+.hts-evidence-item { font-size: 12px; color: var(--slate-600); padding: 2px 0; }
 
 /* ── 板块（与后端 report_generator 蓝色分块一致）── */
 .segment-block {

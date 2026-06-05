@@ -581,6 +581,7 @@ async def get_diagnosis(
         "is_mixed_project": result.get("is_mixed_project", False),
         "accounting_units": result.get("accounting_units", []),
         "suppressed_rules": result.get("suppressed_rules", []),
+        "hard_to_service": result.get("hard_to_service", []),
     }
 
 

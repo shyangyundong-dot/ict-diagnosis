@@ -162,6 +162,62 @@ def _get_clause_text(clause_id: str) -> list[dict]:
     return clause.get("sources", [])
 
 
+# ── 硬转服务检测（#9，见 docs/adr/0002）──
+# 申报为「服务」且列收的核算单元，若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 /
+# 无自有能力），即有「硬转服务」嫌疑。举证式：标记嫌疑 + 要求举证，不自动定性；旁证数量决定嫌疑等级。
+_ZERO_MARGIN_HINTS = ("平进平出", "零毛利", "无加价")
+_SUSPICION_LABEL = {"high": "高嫌疑", "medium": "中嫌疑", "low": "低嫌疑"}
+
+
+def _is_zero_margin(gross) -> bool:
+    if gross is None:
+        return False
+    s = str(gross).strip()
+    if s in ("0", "0元", "0%", "0.0", "毛利0", "毛利率0"):
+        return True
+    return any(h in s for h in _ZERO_MARGIN_HINTS)
+
+
+def _hard_to_service_signals(unit: dict) -> list[str]:
+    sig = []
+    if _is_zero_margin(unit.get("gross")):
+        sig.append("毛利≈0（平进平出）")
+    if unit.get("logistics") == "supplier_direct":
+        sig.append("物流供应商直发")
+    if unit.get("has_self_capability") is False:
+        sig.append("无自有能力融入")
+    return sig
+
+
+def detect_hard_to_service(accounting_units: list | None) -> list[dict]:
+    """对申报服务且列收的核算单元做硬转服务嫌疑检测（举证式）。"""
+    flags = []
+    for u in accounting_units or []:
+        if u.get("declared_type") != "服务" or u.get("listed") is False:
+            continue
+        sig = _hard_to_service_signals(u)
+        if not sig:
+            continue
+        level = "high" if len(sig) >= 3 else ("medium" if len(sig) >= 2 else "low")
+        flags.append({
+            "unit_name": u.get("name") or "未命名服务单元",
+            "amount": u.get("amount"),
+            "signals": sig,
+            "suspicion_level": level,
+            "suspicion_label": _SUSPICION_LABEL[level],
+            "message": (
+                f"该服务单元呈现硬件/施工实质（{'、'.join(sig)}），有「硬转服务」嫌疑，"
+                f"请举证其服务实质，否则相应部分应调整列收。"
+            ),
+            "required_evidence": [
+                "自有人力投入记录 / 工时单",
+                "增值服务内容与方案说明",
+                "电信主导交付与验收证据",
+            ],
+        })
+    return flags
+
+
 def run_diagnosis(project_type: str | list | None, fields: dict, accounting_units: list | None = None) -> dict:
     triggered = []
     tips = []
@@ -224,11 +280,14 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
             suppressed = [it for it in triggered if it["rule_id"] in _HW_LISTING_RULES]
             triggered = [it for it in triggered if it["rule_id"] not in _HW_LISTING_RULES]
 
-    if triggered:
-        max_risk = max(triggered, key=lambda r: RISK_ORDER.get(r["risk_level"], 0))
-        overall_risk = max_risk["risk_level"]
-    else:
-        overall_risk = "low"
+    # #9：硬转服务检测（举证式）——申报服务且列收的单元呈现硬件/施工实质即标记嫌疑，计入整体风险。
+    hard_to_service = detect_hard_to_service(accounting_units)
+
+    risk_levels = (
+        [it["risk_level"] for it in triggered]
+        + [f["suspicion_level"] for f in hard_to_service]
+    )
+    overall_risk = max(risk_levels, key=lambda r: RISK_ORDER.get(r, 0)) if risk_levels else "low"
 
     # 汇总审计材料：同时覆盖风险项和操作提示，合并同名材料的多条用途和来源规则
     audit_set: dict[str, dict] = {}
@@ -265,6 +324,7 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
         "audit_checklist": list(audit_set.values()),
         "suppressed_rules": suppressed,
         "accounting_units": accounting_units or [],
+        "hard_to_service": hard_to_service,
         "rule_version": RULE_VERSION,
     }
 

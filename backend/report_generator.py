@@ -358,6 +358,40 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             f"</div>"
         )
 
+    # 硬转服务嫌疑（#9，举证式，见 docs/adr/0002）
+    hard_to_service = result.get("hard_to_service", []) or []
+    hts_section_html = ""
+    if hard_to_service:
+        cards = ""
+        for f in hard_to_service:
+            sig_html = "".join(f'<span class="hts-signal">{s}</span>' for s in f.get("signals", []))
+            ev_html = "".join(
+                f'<div class="audit-item"><span class="audit-check">☐</span>'
+                f'<div class="audit-item-main"><strong>{e}</strong></div></div>'
+                for e in f.get("required_evidence", [])
+            )
+            amt = f.get("amount")
+            amt_txt = f"{amt:,} 元" if isinstance(amt, (int, float)) else (f"{amt} 元" if amt else "")
+            cards += (
+                f'<div class="hts-card hts-{f.get("suspicion_level", "medium")}">'
+                f'<div class="hts-head">'
+                f'<span class="hts-badge">🔎 {f.get("suspicion_label", "嫌疑")} · 需举证</span>'
+                f'<span class="hts-unit">{f.get("unit_name", "")}</span>'
+                f'<span class="hts-amt">{amt_txt}</span>'
+                f"</div>"
+                f'<div class="hts-signals">{sig_html}</div>'
+                f'<div class="hts-msg">{f.get("message", "")}</div>'
+                f'<div class="rule-section audit-materials-section">'
+                f'<div class="section-title">📁 需举证材料</div>'
+                f'<div class="section-body"><div class="audit-mats">{ev_html}</div></div></div>'
+                f"</div>"
+            )
+        hts_section_html = (
+            f'<div class="section-heading">硬转服务嫌疑 '
+            f'<span class="heading-sub">（需举证，非定性结论）</span></div>'
+            f"{cards}"
+        )
+
     seg_note = " · 已按业务板块分节分析" if segments else ""
     overall_summary_line = (
         f'共触发 <strong>{len(triggered)}</strong> 条风险规则 · <strong>{len(tips)}</strong> 条操作提示{seg_note}'
@@ -499,6 +533,29 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     color: #475569;
     white-space: nowrap;
   }}
+  /* 硬转服务嫌疑（#9，举证式）*/
+  .hts-card {{
+    border: 1px solid #fcd9b6;
+    border-left: 4px solid #f59e0b;
+    border-radius: 10px;
+    background: #fffbeb;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }}
+  .hts-card.hts-high {{ border-left-color: #ea580c; background: #fff7ed; }}
+  .hts-head {{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }}
+  .hts-badge {{
+    font-size: 12px; padding: 3px 10px; border-radius: 12px;
+    background: #f59e0b; color: #fff; font-weight: 600; white-space: nowrap;
+  }}
+  .hts-unit {{ font-size: 14px; font-weight: 700; color: #92400e; flex: 1; }}
+  .hts-amt {{ font-size: 12px; color: #b45309; }}
+  .hts-signals {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }}
+  .hts-signal {{
+    font-size: 11px; padding: 2px 8px; border-radius: 8px;
+    background: #fef3c7; color: #b45309;
+  }}
+  .hts-msg {{ font-size: 13px; color: #475569; line-height: 1.7; margin-bottom: 10px; }}
   .heading-ai-tag {{
     font-size: 12px;
     padding: 2px 8px;
@@ -847,6 +904,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
 
   <!-- 核算单元 · 已排除列收（#8）-->
   {units_section_html}
+
+  <!-- 硬转服务嫌疑（#9，举证式）-->
+  {hts_section_html}
 
   <!-- 风险详情：segments模式按板块分节，降级模式平铺 -->
   {_risk_section_html}
