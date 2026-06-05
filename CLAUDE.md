@@ -42,9 +42,9 @@
 ## 核心流程
 
 ```
-登录 → 用户自然语言描述 → DeepSeek 提取结构化字段 → 用户确认
-→ 规则引擎 run_diagnosis() → DeepSeek AI 个性化分析
-→ 报告写入数据库（含 created_by + line_id 快照）→ 前端按角色过滤展示 / PDF 下载
+登录 → 用户自然语言描述 → DeepSeek 提取结构化字段 + 切分核算单元 → 用户确认
+→ 规则引擎 run_diagnosis()（按核算单元抑制硬件/施工误报 + 硬转服务检测）→ DeepSeek AI 个性化分析
+→ 报告写入数据库（含 created_by + line_id + 核算单元快照）→ 前端按角色过滤展示 / PDF 下载
 ```
 
 ---
@@ -63,6 +63,14 @@
 - `project_type` 在 `/api/confirm` 时为绝对必填，缺失返回 400
 - `service_capability_level` 由系统根据 `service_delivery_mode` 推导，不接受手填
 - BPM 商机编号存入和查询时统一转大写
+
+### 核算单元（2026-06-05 上线，见 `CONTEXT.md` / `docs/adr/0002`）
+- 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，每块有：申报类型（设备/施工/服务/标品）、金额、税率、毛利、物流、是否有自有能力、是否列收
+- AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）
+- **硬件/施工 铁律不列收**：申报为设备/施工的单元自动排除列收 → 引擎据此**抑制 R24/R25/R26**（原靠扁平 `hardware_construction` 误触发），报告显示「已排除列收」
+- **硬转服务（举证式）**：申报为服务且列收的单元若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列需举证材料，**不自动定性**；嫌疑等级计入整体风险
+- 贯穿原则：**工具标风险、举证定生死，不替审核人定罪**
+- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果新增 `accounting_units` / `suppressed_rules` / `hard_to_service`
 
 ### AI 个性化分析
 - 提交确认后，规则引擎先跑（同步），AI 分析后跑（并发，每条规则一次调用）
@@ -86,8 +94,8 @@
   - `users`（账号）
   - `lines`（组织线条）
   - `admin_audit_log`（admin 写操作审计，读不记）
-  - `diagnosis_records`（诊断记录；新增 `created_by` + `line_id` 快照字段，`created_by NULL` 表示存量）
-  - `chat_sessions`（对话会话；新增 `created_by`）
+  - `diagnosis_records`（诊断记录；`created_by` + `line_id` 快照，`created_by NULL` 表示存量；`accounting_units_json` 核算单元快照）
+  - `chat_sessions`（对话会话；`created_by`；`accounting_units_json` 核算单元草稿/确认）
   - `dissent_records`（人工复核；新增 `reviewer_user_id` 外键，旧 `reviewer_id` 字符串字段保留兼容）
 - 会话自动清理：`status=collecting` 且 24 小时未更新的会话每 6 小时清理一次
 - 启动 schema 迁移在 `database._migrate_sqlite()` 中幂等执行
@@ -108,6 +116,7 @@
 |------|------|------|
 | POST | `/api/chat` | 对话，提取字段（仅创建者可续写） |
 | PATCH | `/api/session/{id}/fields` | 手动修改字段（仅创建者） |
+| POST / PATCH | `/api/session/{id}/units` | 核算单元：POST 让 AI 切分草稿 / PATCH 保存用户确认 |
 | GET | `/api/field-definitions` | 返回字段定义 |
 | POST | `/api/confirm` | 确认提交，触发诊断（写入 `created_by` + 快照 `line_id`） |
 | GET | `/api/diagnose/{id}` | 读取历史报告（按角色过滤） |
@@ -143,9 +152,9 @@
 |------|------|---------|------|
 | `LoginView.vue` | `/login` | 公开 | 登录（未登录唯一可访问的路由） |
 | `ChangePasswordView.vue` | `/profile/password` | 任何登录用户 | 改密；`must_change_password=true` 时强制跳转 |
-| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 提交 |
+| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 核算单元切分确认 + 提交 |
 | `DiagnosesView.vue` | `/diagnoses` | 任何登录用户 | 合并列表，按角色过滤行 |
-| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示 + 人工复核弹窗（PDF 下载用 blob） |
+| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示（含「已排除列收」「硬转服务嫌疑」板块）+ 人工复核弹窗（PDF 下载用 blob） |
 | `BpmLookupView.vue` | `/lookup` | 任何登录用户 | 按 BPM 查历史诊断（后端按角色过滤结果） |
 | `TraceabilityView.vue` | `/trace` | 权限内可访问 | 填报溯源 |
 | `AdminLinesView.vue` | `/admin/lines` | admin | 线条 CRUD |
@@ -176,3 +185,6 @@
 - `data/diagnosis.db` 需定期备份
 - 二期规划（N1–N6 逐项举证评分等）见 `docs/phase2-memo-service-capability-level.md`
 - 账号与权限模块完整设计见 `docs/auth-and-rbac-design.md`（两份 docs 都 gitignored，是本地参考；不提交是 项目惯例）
+- 领域术语表见 `CONTEXT.md`（**已入库**）：核算单元 / 列收 / 硬转服务 / 准标识符四要素 等
+- ADR 见 `docs/adr/`（gitignored，本地参考）：`0001` 公网脱敏过渡方案、`0002` 按核算单元重构
+- **规划中（未实现）**：内网部署受限时的「公网部署 + 客户端脱敏」过渡方案，见 `CONTEXT.md` + `docs/adr/0001` + GitHub issues #2–#6；剩余待办 #10/#11/#12（人工核查措辞 / 政府机关枚举 / 毛利桶洞）

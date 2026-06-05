@@ -96,11 +96,11 @@ ict-diagnosis/
 │   │   └── views/
 │   │       ├── LoginView.vue              # 登录
 │   │       ├── ChangePasswordView.vue     # 改密（强制 + 自主两用）
-│   │       ├── ChatView.vue               # 对话式信息收集
+│   │       ├── ChatView.vue               # 对话式信息收集 + 核算单元切分确认
 │   │       ├── DiagnosesView.vue          # 诊断列表（按角色过滤行）
 │   │       ├── BpmLookupView.vue          # 按 BPM 查询
 │   │       ├── TraceabilityView.vue       # 填报溯源
-│   │       ├── ReportView.vue             # 报告展示 + 人工复核弹窗
+│   │       ├── ReportView.vue             # 报告展示（含已排除列收/硬转服务）+ 人工复核弹窗
 │   │       ├── AdminLinesView.vue         # admin: 线条管理
 │   │       ├── AdminUsersView.vue         # admin: 账号管理
 │   │       ├── AdminUserDetailView.vue    # admin: 账号详情 + 活动记录
@@ -151,6 +151,7 @@ ict-diagnosis/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/chat` | 对话，返回 AI 回复和提取字段 |
+| POST / PATCH | `/api/session/{id}/units` | 核算单元：POST 让 AI 切分草稿、PATCH 保存用户确认 |
 | POST | `/api/confirm` | 用户确认字段，提交诊断；`project_type` 缺失返回 400 |
 | GET  | `/api/diagnoses` | 合并列表，按角色过滤行 + 分页 |
 | GET  | `/api/diagnose/{id}` | 获取历史诊断报告（按角色过滤；越权 404） |
@@ -180,6 +181,9 @@ ict-diagnosis/
 - `manual_check_rules`：需人工逐项核查的规则（系统无法自动判断）
 - `tips`：操作提示（不计入风险等级）
 - `audit_checklist`：汇总审计材料清单
+- `accounting_units`：核算单元列表（项目按业务块切分；硬件/施工铁律不列收）
+- `suppressed_rules`：因硬件/施工已正确归类为不列收而被抑制的规则（R24/R25/R26）
+- `hard_to_service`：硬转服务嫌疑（举证式，按服务单元检测零毛利/直发/无自有能力）
 
 完整接口文档：http://localhost:8000/docs
 
@@ -224,7 +228,7 @@ pip install weasyprint
 ## 注意事项
 
 - `.env` 含 DeepSeek API Key、JWT_SECRET、初始 admin 密码，不要提交 Git
-- `data/diagnosis.db` 为诊断留痕数据库；每条诊断含提交时的结构化字段（`input_json`）与对话快照（`chat_snapshot_json`），可通过 `GET /api/diagnose/{id}/traceability` 或前端「填报溯源」查询，**不写入合规报告正文**
+- `data/diagnosis.db` 为诊断留痕数据库；每条诊断含提交时的结构化字段（`input_json`）、对话快照（`chat_snapshot_json`）与核算单元快照（`accounting_units_json`），可通过 `GET /api/diagnose/{id}/traceability` 或前端「填报溯源」查询，**不写入合规报告正文**
 - BPM 商机编号在写入和查询时均统一转为大写
 - 规则库中标注 `"logic": "MANUAL"` 的规则系统无法自动判断，以「人工核查项目」板块单独列出，不计入自动风险等级
 - 规则版本号记录在每条诊断记录中，便于审计追溯
