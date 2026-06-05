@@ -331,6 +331,33 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             f'{manual_cards_html}'
         )
 
+    # 已排除列收的核算单元（#8，见 docs/adr/0002）
+    accounting_units = result.get("accounting_units", []) or []
+    suppressed_rules = result.get("suppressed_rules", []) or []
+    excluded_units = [u for u in accounting_units if u.get("listed") is False]
+    units_section_html = ""
+    if excluded_units:
+        rows = ""
+        for u in excluded_units:
+            amt = u.get("amount")
+            amt_txt = f"{amt:,} 元" if isinstance(amt, (int, float)) else (f"{amt} 元" if amt else "金额未填")
+            rows += (
+                f'<div class="excluded-unit-row">'
+                f'<span class="excluded-unit-name">{u.get("name") or "未命名单元"}</span>'
+                f'<span class="excluded-unit-meta">{u.get("declared_type") or "?"} · {amt_txt}</span>'
+                f'<span class="excluded-unit-tag">已排除列收</span>'
+                f"</div>"
+            )
+        supp_txt = "、".join(r["rule_id"] for r in suppressed_rules)
+        supp_note = f"相应的列收违规规则（{supp_txt}）不适用，未计入风险。" if suppressed_rules else ""
+        units_section_html = (
+            f'<div class="section-heading">核算单元 · 已排除列收</div>'
+            f'<div class="excluded-units-box">'
+            f'<div class="excluded-units-intro">以下业务块已按<strong>硬件/施工</strong>归类为<strong>不列收</strong>，合规排除。{supp_note}</div>'
+            f"{rows}"
+            f"</div>"
+        )
+
     seg_note = " · 已按业务板块分节分析" if segments else ""
     overall_summary_line = (
         f'共触发 <strong>{len(triggered)}</strong> 条风险规则 · <strong>{len(tips)}</strong> 条操作提示{seg_note}'
@@ -446,6 +473,32 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     break-after: avoid;
   }}
   .heading-sub {{ font-size: 12px; font-weight: 400; color: #94a3b8; }}
+  /* 已排除列收的核算单元（#8）*/
+  .excluded-units-box {{
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #94a3b8;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 14px 16px;
+  }}
+  .excluded-units-intro {{ font-size: 13px; color: #475569; line-height: 1.7; margin-bottom: 10px; }}
+  .excluded-unit-row {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-top: 1px solid #eef2f6;
+  }}
+  .excluded-unit-name {{ font-size: 13px; font-weight: 600; color: #334155; flex: 1; }}
+  .excluded-unit-meta {{ font-size: 12px; color: #64748b; }}
+  .excluded-unit-tag {{
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: #e2e8f0;
+    color: #475569;
+    white-space: nowrap;
+  }}
   .heading-ai-tag {{
     font-size: 12px;
     padding: 2px 8px;
@@ -791,6 +844,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
       </div>
     </div>
   </div>
+
+  <!-- 核算单元 · 已排除列收（#8）-->
+  {units_section_html}
 
   <!-- 风险详情：segments模式按板块分节，降级模式平铺 -->
   {_risk_section_html}

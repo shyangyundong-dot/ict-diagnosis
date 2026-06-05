@@ -33,6 +33,13 @@ export const patchSessionFields = (sessionId, fields) =>
 
 export const fetchFieldDefinitions = () => api.get('/field-definitions')
 
+// 核算单元（#7）：POST 让 AI 切分草稿，PATCH 保存用户确认后的单元
+export const segmentUnits = (sessionId) =>
+  api.post(`/session/${sessionId}/units`, {}, { timeout: 180000 })
+
+export const saveUnits = (sessionId, units) =>
+  api.patch(`/session/${sessionId}/units`, { accounting_units: units })
+
 const CONFIRM_TIMEOUT_MS = 600000
 
 export const confirmDiagnosis = (sessionId, fields) =>

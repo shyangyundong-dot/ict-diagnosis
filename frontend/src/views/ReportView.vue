@@ -118,6 +118,22 @@
         </div>
       </div>
 
+      <!-- 核算单元 · 已排除列收（#8）-->
+      <template v-if="excludedUnits.length">
+        <div class="section-heading">核算单元 · 已排除列收</div>
+        <div class="excluded-units-box">
+          <div class="excluded-units-intro">
+            以下业务块已按<strong>硬件/施工</strong>归类为<strong>不列收</strong>，合规排除。
+            <span v-if="suppressedRuleIds">相应的列收违规规则（{{ suppressedRuleIds }}）不适用，未计入风险。</span>
+          </div>
+          <div v-for="(u, i) in excludedUnits" :key="i" class="excluded-unit-row">
+            <span class="excluded-unit-name">{{ u.name || '未命名单元' }}</span>
+            <span class="excluded-unit-meta">{{ u.declared_type || '?' }} · {{ formatUnitAmount(u.amount) }}</span>
+            <span class="excluded-unit-tag">已排除列收</span>
+          </div>
+        </div>
+      </template>
+
       <!-- ===== 分段模式（AI丰富化成功）===== -->
       <template v-if="data.segments && data.segments.length">
         <div class="section-heading">风险详情分析
@@ -425,6 +441,19 @@ const riskConfig = {
   medium: { label: '中风险', icon: '🟡' },
   low:    { label: '低风险', icon: '🟢' },
   tip:    { label: '操作提示', icon: '📋' },
+}
+
+// 已排除列收的核算单元（#8，见 docs/adr/0002）
+const excludedUnits = computed(() =>
+  (data.value.accounting_units || []).filter((u) => u.listed === false)
+)
+const suppressedRuleIds = computed(() =>
+  (data.value.suppressed_rules || []).map((r) => r.rule_id).join('、')
+)
+function formatUnitAmount(amt) {
+  if (amt == null || amt === '') return '金额未填'
+  const n = Number(amt)
+  return Number.isFinite(n) ? `${n.toLocaleString()} 元` : `${amt} 元`
 }
 
 // 计算总风险条数（支持segments和平铺两种数据结构）
@@ -766,6 +795,26 @@ onMounted(async () => {
   background: linear-gradient(90deg, #7c3aed, #2563eb); color: #fff; font-weight: 500;
 }
 .tips-heading { margin-top: 20px; }
+
+/* ── 已排除列收的核算单元（#8）── */
+.excluded-units-box {
+  border: 1px solid var(--slate-200);
+  border-left: 4px solid var(--slate-400);
+  border-radius: 8px;
+  background: var(--slate-50);
+  padding: 14px 16px;
+}
+.excluded-units-intro { font-size: 13px; color: var(--slate-600); line-height: 1.7; margin-bottom: 10px; }
+.excluded-unit-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-top: 1px solid #eef2f6;
+}
+.excluded-unit-name { font-size: 13px; font-weight: 600; color: var(--slate-700); flex: 1; }
+.excluded-unit-meta { font-size: 12px; color: var(--slate-500); }
+.excluded-unit-tag {
+  font-size: 11px; padding: 2px 10px; border-radius: 10px;
+  background: var(--slate-200); color: var(--slate-600); white-space: nowrap;
+}
 
 /* ── 板块（与后端 report_generator 蓝色分块一致）── */
 .segment-block {

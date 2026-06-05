@@ -139,6 +139,57 @@
             </div>
           </section>
 
+          <!-- 核算单元（#7）-->
+          <section class="fields-section units-section">
+            <div class="section-head">
+              <span class="section-head-title">核算单元</span>
+              <button class="units-segment-btn" :disabled="unitsLoading" @click="doSegmentUnits">
+                {{ unitsLoading ? '切分中…' : (accountingUnits.length ? '重新切分' : 'AI 切分') }}
+              </button>
+            </div>
+            <div class="units-hint">
+              <p>把项目切分成不同的核算单元：</p>
+              <ol class="units-hint-list">
+                <li>设备/施工不列收</li>
+                <li>重点关注「服务」单元</li>
+              </ol>
+              <p>AI 切分为草稿，请确认或微调。</p>
+            </div>
+            <div v-if="unitsLoading" class="section-parsing"><span class="parsing-dot"></span>AI 正在切分核算单元…</div>
+            <div v-else-if="accountingUnits.length === 0" class="section-empty">
+              尚未切分。点「AI 切分」按对话拆分核算单元，或手动添加。
+            </div>
+            <div v-else class="units-list">
+              <div v-for="(u, idx) in accountingUnits" :key="idx" class="unit-card">
+                <div class="unit-row-top">
+                  <input class="unit-name" v-model="u.name" placeholder="单元名称" @change="persistUnits" />
+                  <span class="unit-listed-badge" :class="listedClass(u.listed)">{{ listedLabel(u.listed) }}</span>
+                  <button class="unit-del" @click="removeUnit(idx)" title="删除该单元">✕</button>
+                </div>
+                <div class="unit-row-fields">
+                  <label>类型
+                    <select v-model="u.declared_type" @change="onUnitTypeChange(u)">
+                      <option v-for="t in UNIT_TYPES" :key="t" :value="t">{{ t }}</option>
+                    </select>
+                  </label>
+                  <label>金额
+                    <input v-model="u.amount" placeholder="元" @change="persistUnits" />
+                  </label>
+                  <label>列收
+                    <select v-model="u.listed" @change="persistUnits"
+                            :disabled="u.declared_type === '设备' || u.declared_type === '施工'">
+                      <option :value="true">列收候选</option>
+                      <option :value="false">不列收</option>
+                      <option value="uncertain">待定</option>
+                    </select>
+                  </label>
+                </div>
+                <div v-if="u.reason" class="unit-reason">{{ u.reason }}</div>
+              </div>
+            </div>
+            <button v-if="accountingUnits.length > 0 || sessionId" class="units-add-btn" @click="addUnit">＋ 添加核算单元</button>
+          </section>
+
           <!-- ② 待补充信息 -->
           <section class="fields-section section-pending-block">
             <div class="section-head">
@@ -225,7 +276,7 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue'
 import FieldControl from '../components/FieldControl.vue'
-import { sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, downloadReportPdf } from '../api/diagnosis.js'
+import { sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, downloadReportPdf, segmentUnits, saveUnits } from '../api/diagnosis.js'
 
 const FIELD_LABELS = {
   bpm_id: 'BPM商机编号', project_type: '项目类型', customer_type: '前向客户类型',
@@ -280,6 +331,64 @@ const drawerOpen = ref(false)
 
 function openDrawer() { drawerOpen.value = true }
 function closeDrawer() { drawerOpen.value = false }
+
+// ── 核算单元（#7，见 docs/adr/0002）──
+const accountingUnits = ref([])
+const unitsLoading = ref(false)
+const UNIT_TYPES = ['设备', '施工', '服务', '标品', '其他']
+
+function listedLabel(v) {
+  if (v === true) return '列收候选'
+  if (v === false) return '不列收'
+  return '待定'
+}
+function listedClass(v) {
+  if (v === true) return 'unit-listed-yes'
+  if (v === false) return 'unit-listed-no'
+  return 'unit-listed-uncertain'
+}
+
+async function doSegmentUnits() {
+  if (!sessionId.value || unitsLoading.value) return
+  unitsLoading.value = true
+  try {
+    const res = await segmentUnits(sessionId.value)
+    accountingUnits.value = res.data.accounting_units || []
+  } catch (e) {
+    alert('核算单元切分失败：' + formatApiError(e))
+  } finally {
+    unitsLoading.value = false
+  }
+}
+
+function onUnitTypeChange(u) {
+  // 硬件/施工 铁律不列收（与后端一致）
+  if (u.declared_type === '设备' || u.declared_type === '施工') u.listed = false
+  persistUnits()
+}
+
+function addUnit() {
+  accountingUnits.value.push({
+    name: '', declared_type: '服务', amount: null, tax_rate: null,
+    gross: null, logistics: 'unknown', has_self_capability: 'unknown',
+    listed: 'uncertain', reason: '',
+  })
+  persistUnits()
+}
+
+function removeUnit(idx) {
+  accountingUnits.value.splice(idx, 1)
+  persistUnits()
+}
+
+async function persistUnits() {
+  if (!sessionId.value) return
+  try {
+    await saveUnits(sessionId.value, accountingUnits.value)
+  } catch (e) {
+    // 保存失败不打断填报；下次编辑会再尝试
+  }
+}
 
 const parsedFieldKeys = computed(() => {
   const missing = new Set(missingFields.value)
@@ -487,7 +596,8 @@ function resetChat() {
 <style scoped>
 .layout {
   display: flex;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -835,6 +945,45 @@ function resetChat() {
 .section-empty strong { color: var(--slate-900); }
 .section-empty.subtle { color: var(--slate-500); font-size: 12px; }
 
+/* ── 核算单元（#7）── */
+.units-segment-btn {
+  padding: 4px 12px; border: 1px solid var(--blue-300); border-radius: 14px;
+  background: var(--blue-50); color: var(--blue-700); font-size: 12px; cursor: pointer;
+}
+.units-segment-btn:disabled { opacity: .6; cursor: default; }
+.units-hint { font-size: 12px; color: var(--slate-500); line-height: 1.55; margin: 4px 0 8px; }
+.units-hint p { margin: 0; }
+.units-hint-list { margin: 2px 0; padding-left: 18px; }
+.units-hint-list li { margin: 1px 0; }
+.units-list { display: flex; flex-direction: column; gap: 8px; }
+.unit-card {
+  border: 1px solid var(--slate-200); border-radius: 10px; padding: 10px 12px; background: #fff;
+}
+.unit-row-top { display: flex; align-items: center; gap: 8px; }
+.unit-name {
+  flex: 1; min-width: 0; border: none; border-bottom: 1px solid var(--slate-200);
+  font-size: 13px; font-weight: 600; color: var(--slate-800); padding: 2px 0; background: transparent;
+}
+.unit-name:focus { outline: none; border-bottom-color: var(--blue-500); }
+.unit-listed-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.unit-listed-yes { background: #dcfce7; color: #15803d; }
+.unit-listed-no { background: var(--slate-100); color: var(--slate-500); }
+.unit-listed-uncertain { background: #fef3c7; color: #b45309; }
+.unit-del { border: none; background: transparent; color: var(--slate-400); cursor: pointer; font-size: 13px; }
+.unit-del:hover { color: #dc2626; }
+.unit-row-fields { display: flex; gap: 10px; margin-top: 8px; }
+.unit-row-fields label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--slate-500); }
+.unit-row-fields select, .unit-row-fields input {
+  font-size: 12px; padding: 4px 6px; border: 1px solid var(--slate-200); border-radius: 6px; color: var(--slate-800);
+}
+.unit-row-fields select:disabled { background: var(--slate-50); color: var(--slate-400); }
+.unit-reason { font-size: 11px; color: var(--slate-500); margin-top: 6px; line-height: 1.5; }
+.units-add-btn {
+  margin-top: 8px; width: 100%; padding: 6px; border: 1px dashed var(--slate-300);
+  border-radius: 8px; background: transparent; color: var(--slate-500); font-size: 12px; cursor: pointer;
+}
+.units-add-btn:hover { border-color: var(--blue-400); color: var(--blue-600); }
+
 .field-list {
   display: flex;
   flex-direction: column;
@@ -1044,7 +1193,8 @@ function resetChat() {
 
   .chat-panel {
     width: 100%;
-    height: 100vh;
+    flex: 1;
+    min-height: 0;
     border-right: none;
   }
 

@@ -13,6 +13,7 @@ from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord, Line, 
 from rules.engine import run_diagnosis, RULE_VERSION, get_realtime_warnings
 from ai_chat import (
     chat_with_ai,
+    segment_accounting_units,
     get_missing_fields,
     FIELD_DEFINITIONS,
     normalize_project_type_field,
@@ -227,6 +228,45 @@ async def patch_session_fields(
     }
 
 
+@router.post("/session/{session_id}/units")
+async def segment_session_units(
+    session_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """让 AI 把当前对话切分成核算单元草稿，存入会话并返回（#7，见 docs/adr/0002）。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session or not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    messages: list = json.loads(session.messages_json)
+    units = await segment_accounting_units(messages)
+    session.accounting_units_json = json.dumps(units, ensure_ascii=False)
+    db.commit()
+    return {"session_id": session_id, "accounting_units": units}
+
+
+class UnitsSubmit(BaseModel):
+    accounting_units: list
+
+
+@router.patch("/session/{session_id}/units")
+async def save_session_units(
+    session_id: str,
+    body: UnitsSubmit,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """保存用户确认/微调后的核算单元（AI 切分是草稿，人确认定稿）。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session or not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    session.accounting_units_json = json.dumps(body.accounting_units, ensure_ascii=False)
+    db.commit()
+    return {"session_id": session_id, "accounting_units": body.accounting_units}
+
+
 @router.get("/field-definitions")
 async def field_definitions(user: User = Depends(get_current_user)):
     """供前端渲染下拉/多选。"""
@@ -270,7 +310,11 @@ async def confirm_and_diagnose(
     else:
         raise HTTPException(status_code=400, detail="project_type 为必填项，请先确认项目类型")
 
-    result = run_diagnosis(pt_for_rules, fields_for_diagnosis)
+    try:
+        accounting_units = json.loads(session.accounting_units_json or "[]")
+    except Exception:
+        accounting_units = []
+    result = run_diagnosis(pt_for_rules, fields_for_diagnosis, accounting_units=accounting_units)
 
     chat_history = None
     if session:
@@ -290,6 +334,7 @@ async def confirm_and_diagnose(
         project_type=project_type_db,
         input_json=json.dumps(fields_for_diagnosis, ensure_ascii=False),
         chat_snapshot_json=session.messages_json,
+        accounting_units_json=session.accounting_units_json,
         overall_risk=result["overall_risk"],
         result_json=json.dumps(result, ensure_ascii=False),
         rule_version=RULE_VERSION,
@@ -534,6 +579,8 @@ async def get_diagnosis(
         "manual_check_rules": result.get("manual_check_rules", []),
         "ai_enriched": result.get("ai_enriched", False),
         "is_mixed_project": result.get("is_mixed_project", False),
+        "accounting_units": result.get("accounting_units", []),
+        "suppressed_rules": result.get("suppressed_rules", []),
     }
 
 

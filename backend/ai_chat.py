@@ -599,3 +599,65 @@ async def chat_with_ai(messages: list[dict], current_fields: dict, project_type:
         "next_question": extracted_data.get("next_question", ""),
         "is_complete": extracted_data.get("is_complete", False),
     }
+
+
+# ── 核算单元切分（#7，见 docs/adr/0002）──
+UNIT_SEGMENT_PROMPT = """你是电信 ICT 项目财务核算助手。请把下面这段项目描述切分成「核算单元」——一笔合同里被分别核算的最小业务块。
+
+对每个核算单元输出字段：
+- name: 单元名称
+- declared_type: 申报业务类型，取值之一：设备 | 施工 | 服务 | 标品 | 其他
+- amount: 收入金额（数字，单位元；不确定填 null）
+- tax_rate: 税率（字符串如 "13%"/"6%"；不确定 null）
+- gross: 毛利额或毛利率（字符串描述；不确定 null）
+- logistics: 物流是否电信主控，取值：self | supplier_direct | unknown
+- has_self_capability: 是否融入电信自有能力，取值：true | false | unknown
+- listed: 是否应列收，取值：true（列收候选）| false（铁律不列收，如硬件/施工）| uncertain
+- reason: listed 的简短理由
+
+规则：硬件/设备、施工 类单元为铁律不列收（listed=false）。宁可把不确定的值填 null，也不要编造。只输出一个 JSON 数组，不要任何解释文字。"""
+
+
+async def segment_accounting_units(messages: list[dict]) -> list[dict]:
+    """把对话切分成核算单元草稿（AI 生成，供用户确认）。失败返回空列表。"""
+    if not (DEEPSEEK_API_KEY or "").strip():
+        return []
+
+    convo = "\n\n".join(
+        (m.get("content") or "") for m in messages if m.get("role") == "user"
+    ).strip()
+    if not convo:
+        return []
+
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": UNIT_SEGMENT_PROMPT},
+            {"role": "user", "content": convo},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 3000,
+    }
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    timeout = httpx.Timeout(connect=30.0, read=120.0, write=120.0, pool=30.0)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(DEEPSEEK_MAX_RETRIES):
+                try:
+                    resp = await client.post(DEEPSEEK_URL, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    break
+                except (httpx.HTTPStatusError, httpx.RequestError):
+                    if attempt < DEEPSEEK_MAX_RETRIES - 1:
+                        await asyncio.sleep(1.5 * (2**attempt))
+                        continue
+                    return []
+        content = (resp.json()["choices"][0].get("message") or {}).get("content") or ""
+        m = re.search(r"\[[\s\S]*\]", content)
+        if not m:
+            return []
+        units = json.loads(m.group(0))
+        return units if isinstance(units, list) else []
+    except Exception:
+        return []

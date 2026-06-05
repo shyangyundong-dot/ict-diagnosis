@@ -162,7 +162,7 @@ def _get_clause_text(clause_id: str) -> list[dict]:
     return clause.get("sources", [])
 
 
-def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
+def run_diagnosis(project_type: str | list | None, fields: dict, accounting_units: list | None = None) -> dict:
     triggered = []
     tips = []
     manual_check_rules = []
@@ -209,6 +209,21 @@ def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
         else:
             triggered.append(item)
 
+    # #8（见 docs/adr/0002）：硬件/施工 单元铁律不列收，正确归类即合规排除——
+    # 此时 R24/R25/R26 的「列收违规」是误报，予以抑制。
+    # （#9 会让 R24/R25 改按服务单元的「硬转服务」实质触发，而非项目含硬件即触发。）
+    suppressed = []
+    if accounting_units:
+        hw_types = {"设备", "施工"}
+        has_listed_hardware = any(
+            (u.get("declared_type") in hw_types) and (u.get("listed") is not False)
+            for u in accounting_units
+        )
+        if not has_listed_hardware:
+            _HW_LISTING_RULES = {"R24", "R25", "R26"}
+            suppressed = [it for it in triggered if it["rule_id"] in _HW_LISTING_RULES]
+            triggered = [it for it in triggered if it["rule_id"] not in _HW_LISTING_RULES]
+
     if triggered:
         max_risk = max(triggered, key=lambda r: RISK_ORDER.get(r["risk_level"], 0))
         overall_risk = max_risk["risk_level"]
@@ -248,6 +263,8 @@ def run_diagnosis(project_type: str | list | None, fields: dict) -> dict:
         "tips": tips,
         "manual_check_rules": manual_check_rules,
         "audit_checklist": list(audit_set.values()),
+        "suppressed_rules": suppressed,
+        "accounting_units": accounting_units or [],
         "rule_version": RULE_VERSION,
     }
 

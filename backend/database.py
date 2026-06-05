@@ -39,6 +39,10 @@ def _migrate_sqlite():
         )
         _add_column_if_missing(conn, "dissent_records", "reviewer_user_id", "reviewer_user_id INTEGER")
 
+        # 核算单元模块（#7）
+        _add_column_if_missing(conn, "chat_sessions", "accounting_units_json", "accounting_units_json TEXT DEFAULT '[]'")
+        _add_column_if_missing(conn, "diagnosis_records", "accounting_units_json", "accounting_units_json TEXT")
+
         # 一次性清理：created_by 列刚加上时，把所有 status='collecting' 的存量会话删掉
         # 它们没有归属人，新认证体系下无法被任何用户接续完成（设计文档 §11.1 决策 A）
         if chat_session_created_by_just_added:

@@ -12,6 +12,8 @@ class DiagnosisRecord(Base):
     project_type = Column(String(200), nullable=False)
     input_json = Column(Text, nullable=False)
     chat_snapshot_json = Column(Text, nullable=True)
+    # 核算单元列表快照（#7）；NULL = 该记录创建于核算单元功能之前
+    accounting_units_json = Column(Text, nullable=True)
     overall_risk = Column(String(20), nullable=False)
     result_json = Column(Text, nullable=False)
     rule_version = Column(String(20), nullable=False)
@@ -28,6 +30,8 @@ class ChatSession(Base):
     session_id = Column(String(100), nullable=False, unique=True)
     messages_json = Column(Text, nullable=False, default="[]")
     extracted_fields_json = Column(Text, nullable=False, default="{}")
+    # AI 切分草稿 + 用户确认后的核算单元列表（#7）
+    accounting_units_json = Column(Text, nullable=False, default="[]")
     status = Column(String(20), nullable=False, default="collecting")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
