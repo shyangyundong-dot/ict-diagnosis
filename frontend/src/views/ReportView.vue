@@ -294,6 +294,9 @@
           人工核查项目
           <span class="heading-sub">（系统无法自动判断，须人工逐项确认）</span>
         </div>
+        <div class="manual-intro">
+          以下为<strong>每个诊断都会列出的通用核查清单</strong>，<strong>并非系统判定本项目存在这些问题</strong>——系统对这些条款不做自动判断，请逐项人工核实。
+        </div>
         <div v-for="rule in data.manual_check_rules" :key="rule.rule_id" class="rule-card manual-card">
           <div class="rule-card-header" @click="toggleRule('manual-' + rule.rule_id)">
             <div class="rule-card-left">
@@ -818,6 +821,11 @@ onMounted(async () => {
   background: linear-gradient(90deg, #7c3aed, #2563eb); color: #fff; font-weight: 500;
 }
 .tips-heading { margin-top: 20px; }
+.manual-intro {
+  font-size: 13px; color: var(--slate-600); line-height: 1.7;
+  background: var(--slate-50); border: 1px solid var(--slate-200);
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;
+}
 
 /* ── 已排除列收的核算单元（#8）── */
 .excluded-units-box {

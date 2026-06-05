@@ -328,6 +328,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
         manual_section_html = (
             f'<div class="section-heading">人工核查项目 '
             f'<span class="heading-sub">（系统无法自动判断，须人工逐项确认）</span></div>'
+            f'<div class="manual-intro">以下为<strong>每个诊断都会列出的通用核查清单</strong>，'
+            f'<strong>并非系统判定本项目存在这些问题</strong>——系统对这些条款不做自动判断，请逐项人工核实。</div>'
             f'{manual_cards_html}'
         )
 
@@ -507,6 +509,11 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     break-after: avoid;
   }}
   .heading-sub {{ font-size: 12px; font-weight: 400; color: #94a3b8; }}
+  .manual-intro {{
+    font-size: 13px; color: #475569; line-height: 1.7;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 12px;
+  }}
   /* 已排除列收的核算单元（#8）*/
   .excluded-units-box {{
     border: 1px solid #e2e8f0;

@@ -1,5 +1,5 @@
 {
-  "version": "v1.6",
+  "version": "v1.7",
   "rules": [
     {
       "id": "R01",
@@ -550,6 +550,7 @@
             "operator": "in",
             "value": [
               "lte_3",
+              "pct_3_4",
               "pct_4_5"
             ]
           },
@@ -1350,6 +1351,7 @@
             "value": [
               "lte_0",
               "lte_3",
+              "pct_3_4",
               "pct_4_5"
             ]
           }

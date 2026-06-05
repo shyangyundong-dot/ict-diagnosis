@@ -36,8 +36,8 @@ FIELD_DEFINITIONS = {
         "label": "前向客户类型",
         "required": True,
         "applies_to": "all",
-        "options": ["state_owned", "private", "institution", "other"],
-        "options_label": ["国企", "民企", "事业单位", "其他"]
+        "options": ["state_owned", "private", "institution", "government", "other"],
+        "options_label": ["国企", "民企", "事业单位", "政府机关", "其他"]
     },
     "supplier_confirmed": {
         "label": "后向供应商是否已确定",
@@ -80,8 +80,8 @@ FIELD_DEFINITIONS = {
         "label": "毛利率估算",
         "required": True,
         "applies_to": "all",
-        "options": ["lte_0", "lte_3", "pct_4_5", "pct_6_10", "gt_10"],
-        "options_label": ["≤0%", "1%-3%", "4%-5%", "6%-10%", "10%以上"]
+        "options": ["lte_0", "lte_3", "pct_3_4", "pct_4_5", "pct_5_6", "pct_6_10", "gt_10"],
+        "options_label": ["≤0%", "1%-3%", "3%-4%", "4%-5%", "5%-6%", "6%-10%", "10%以上"]
     },
     "revenue_recognition": {
         "label": "收入确认方式",
@@ -450,13 +450,13 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 
 ## 字段名和合法值说明
 - project_type: **数组**，可多项。每项为："system_integration"（系统集成）| "software_development"（软件开发）| "equipment_sales"（设备销售）| "service"（服务类）| "other"。若用户只描述了一种，也可用单字符串，系统会转为单元素数组。
-- customer_type: "state_owned"（国企）| "private"（民企）| "institution"（事业单位）| "other"
+- customer_type: "state_owned"（国企）| "private"（民企）| "institution"（事业单位）| "government"（政府机关，如民政局、各级政府行政部门）| "other"
 - supplier_confirmed: true | false
 - procurement_method: 电信对实施方/供应商的后向采购。"open_bid"（公开招标）| "sole_source"（单一来源）| "comparison"（比选）| "collective"（集采）
 - forward_bidding_type: 前向客户对电信的采购方式（不要与 procurement_method 混淆）。"public_bid"（公开招标）| "negotiation"（谈判/议标）| "other"（其他）
 - contract_matches_bpm: 前向合同客户与BPM商机客户是否一致。"yes"（一致或计划保持一致）| "no"（不一致）| "uncertain"（不确定/尚未签订）
 - related_party: "yes" | "no" | "uncertain"
-- gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_4_5"（4-5%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）
+- gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_3_4"（3-4%）| "pct_4_5"（4-5%）| "pct_5_6"（5-6%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）
 - revenue_recognition: "point_in_time"（时点法）| "over_time"（时段法）| "mixed" | "uncertain"
 - is_end_user: true | false
 - has_telecom_capability: "yes" | "no" | "partial"

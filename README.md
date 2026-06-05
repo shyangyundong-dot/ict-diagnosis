@@ -82,7 +82,7 @@ ict-diagnosis/
 │   │   └── admin.py                  # admin 后台路由（require_admin 守卫）
 │   └── rules/
 │       ├── engine.py                 # 规则引擎核心
-│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.6）
+│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.7）
 │       └── clauses.json              # 条款原文库
 ├── frontend/
 │   ├── src/

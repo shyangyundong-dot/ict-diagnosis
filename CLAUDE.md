@@ -52,7 +52,7 @@
 ## 关键约定
 
 ### 规则库
-- 规则文件：`backend/rules/rules.json`（当前 v1.6，共 35 条，编号 R01–R37，跳号 R04/R33）
+- 规则文件：`backend/rules/rules.json`（当前 v1.7，共 35 条，编号 R01–R37，跳号 R04/R33）
 - 条款原文：`backend/rules/clauses.json`
 - 改规则无需动代码，重启后端即生效；每次更新必须修改 `version` 字段
 - `"logic": "MANUAL"` 的规则（R01/R05/R13/R19/R20/R28）系统不自动触发，统一收集进 `manual_check_rules` 在报告中单独展示
