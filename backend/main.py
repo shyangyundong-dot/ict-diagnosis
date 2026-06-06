@@ -91,3 +91,30 @@ async def startup():
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(router)
+
+# ── 单进程部署：后端直接伺服已构建的前端 dist + 单页路由回退 ──
+# 仅当 dist 存在时启用（本地开发用 vite，dist 不存在则不受影响）。
+from pathlib import Path as _Path
+from fastapi import HTTPException as _HTTPException
+from fastapi.responses import FileResponse as _FileResponse
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+_DIST = (_Path(__file__).resolve().parent.parent / "frontend" / "dist").resolve()
+if _DIST.is_dir():
+    _assets = _DIST / "assets"
+    if _assets.is_dir():
+        app.mount("/assets", _StaticFiles(directory=str(_assets)), name="assets")
+
+    @app.get("/")
+    async def _spa_index():
+        return _FileResponse(str(_DIST / "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def _spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            raise _HTTPException(status_code=404)
+        # 防路径穿越：解析后必须仍落在 dist 内，否则回退 index.html
+        candidate = (_DIST / full_path).resolve()
+        if candidate.is_file() and (candidate == _DIST or _DIST in candidate.parents):
+            return _FileResponse(str(candidate))
+        return _FileResponse(str(_DIST / "index.html"))
