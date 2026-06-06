@@ -77,7 +77,7 @@ FIELD_DEFINITIONS = {
         "options_label": ["是", "否", "不确定"]
     },
     "gross_margin": {
-        "label": "毛利率估算",
+        "label": "毛利率估算（应列收/服务侧）",
         "required": True,
         "applies_to": "all",
         "options": ["lte_0", "lte_3", "pct_3_4", "pct_4_5", "pct_5_6", "pct_6_10", "gt_10"],
@@ -456,7 +456,7 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 - forward_bidding_type: 前向客户对电信的采购方式（不要与 procurement_method 混淆）。"public_bid"（公开招标）| "negotiation"（谈判/议标）| "other"（其他）
 - contract_matches_bpm: 前向合同客户与BPM商机客户是否一致。"yes"（一致或计划保持一致）| "no"（不一致）| "uncertain"（不确定/尚未签订）
 - related_party: "yes" | "no" | "uncertain"
-- gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_3_4"（3-4%）| "pct_4_5"（4-5%）| "pct_5_6"（5-6%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）
+- gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_3_4"（3-4%）| "pct_4_5"（4-5%）| "pct_5_6"（5-6%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）。**只取应列收（服务）侧的毛利**：设备/施工单元铁律不列收、其毛利与列收判断无关，绝不要把设备/施工的毛利混算或拖低进这个值。若项目含多块服务，取在问列收的那块服务的毛利（多服务单元的精确逐块判断是已知缺口，暂取主服务块）。
 - revenue_recognition: "point_in_time"（时点法）| "over_time"（时段法）| "mixed" | "uncertain"
 - is_end_user: true | false
 - has_telecom_capability: "yes" | "no" | "partial"
