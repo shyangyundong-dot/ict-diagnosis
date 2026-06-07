@@ -4,6 +4,20 @@ PDF报告生成模块
 如果WeasyPrint不可用，返回HTML格式
 """
 
+import html
+
+
+def _esc(value) -> str:
+    """转义动态内容（AI 输出 / 用户输入 / 规则库文本）再拼进报告 HTML，杜绝注入。
+
+    None → 空串；非字符串先 str()。html.escape 默认同时转义引号，
+    故用于属性值（如 title="..."）同样安全。
+    """
+    if value is None:
+        return ""
+    return html.escape(str(value))
+
+
 RISK_CONFIG = {
     "high":   {"label": "高风险", "color": "#dc2626", "bg": "#fef2f2", "border": "#fca5a5", "icon": "🔴"},
     "medium": {"label": "中风险", "color": "#d97706", "bg": "#fffbeb", "border": "#fcd34d", "icon": "🟡"},
@@ -41,8 +55,8 @@ def _render_rule_card(
         code_part = f"（{doc_code}）" if doc_code and "【" not in doc_code else ""
         clauses_html += (
             f'<div class="clause-item">'
-            f'<div class="clause-source">📄 {src.get("doc_name", "")}{code_part}</div>'
-            f'<div class="clause-text">{src.get("text", "")}</div>'
+            f'<div class="clause-source">📄 {_esc(src.get("doc_name", ""))}{_esc(code_part)}</div>'
+            f'<div class="clause-text">{_esc(src.get("text", ""))}</div>'
             f"</div>"
         )
 
@@ -53,16 +67,16 @@ def _render_rule_card(
             f'<div class="audit-item">'
             f'<span class="audit-check">☐</span>'
             f'<div class="audit-item-main">'
-            f'<strong>{mat["item"]}</strong>'
+            f'<strong>{_esc(mat["item"])}</strong>'
             f'<span class="audit-sep"> — </span>'
-            f'<span class="audit-purpose">{mat["purpose"]}</span>'
+            f'<span class="audit-purpose">{_esc(mat["purpose"])}</span>'
             f"</div></div>"
         )
 
     # AI个性化分析（优先使用，没有则降级到标准文本）
-    risk_desc = rule.get("ai_risk_analysis") or rule.get("risk_description", "")
-    remediation = rule.get("ai_remediation") or rule.get("remediation", "")
-    optimization = rule.get("ai_optimization") or rule.get("optimization_direction", "")
+    risk_desc = _esc(rule.get("ai_risk_analysis") or rule.get("risk_description", ""))
+    remediation = _esc(rule.get("ai_remediation") or rule.get("remediation", ""))
+    optimization = _esc(rule.get("ai_optimization") or rule.get("optimization_direction", ""))
 
     # AI标记（仅在实际启用 API 丰富化时展示，避免与规则原文混淆）
     ai_tag = (
@@ -76,8 +90,8 @@ def _render_rule_card(
         {hrt_banner}
         <div class="rule-header">
             <span class="rule-badge" style="background:{rcfg['color']}">{rcfg['icon']} {rcfg['label']}</span>
-            <span class="rule-id">{rule['rule_id']}</span>
-            <span class="rule-name">{rule['rule_name']}</span>
+            <span class="rule-id">{_esc(rule['rule_id'])}</span>
+            <span class="rule-name">{_esc(rule['rule_name'])}</span>
             {ai_tag}
         </div>
         <div class="rule-section">
@@ -121,11 +135,11 @@ def _render_segment(
         <div class="rule-card tip-card">
             <div class="rule-header">
                 <span class="rule-badge tip-badge">📋 操作提示</span>
-                <span class="rule-id">{tip['rule_id']}</span>
-                <span class="rule-name">{tip['rule_name']}</span>
+                <span class="rule-id">{_esc(tip['rule_id'])}</span>
+                <span class="rule-name">{_esc(tip['rule_name'])}</span>
             </div>
             <div class="rule-section">
-                <div class="section-body section-body-pre">{tip.get("ai_remediation") or tip.get("remediation", "")}</div>
+                <div class="section-body section-body-pre">{_esc(tip.get("ai_remediation") or tip.get("remediation", ""))}</div>
             </div>
         </div>'''
         return f'<div class="section-heading tips-heading">操作提示 <span class="heading-sub">（不计入风险等级）</span></div>{tips_html}'
@@ -136,7 +150,7 @@ def _render_segment(
     <div class="segment-block">
         <div class="segment-header">
             <span class="segment-icon">📦</span>
-            <span class="segment-title">{label}</span>
+            <span class="segment-title">{_esc(label)}</span>
             <span class="segment-count" style="background:rgba(255,255,255,0.15);">✅ 无风险</span>
         </div>
         <div class="segment-ok">该业务板块未触发风险规则，请保持过程留痕。</div>
@@ -150,13 +164,13 @@ def _render_segment(
 
     overview_block = ""
     if overview:
-        overview_block = f'<div class="segment-overview">{overview}</div>'
+        overview_block = f'<div class="segment-overview">{_esc(overview)}</div>'
 
     return f'''
     <div class="segment-block">
         <div class="segment-header">
             <span class="segment-icon">📦</span>
-            <span class="segment-title">{label}</span>
+            <span class="segment-title">{_esc(label)}</span>
             <span class="segment-count">{len(triggered)} 条风险</span>
         </div>
         {overview_block}
@@ -165,6 +179,8 @@ def _render_segment(
 
 
 def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_at: str) -> str:
+    # bpm_id 为用户输入，仅用于报告内展示，统一转义后再拼进 HTML
+    bpm_id = _esc(bpm_id)
     overall = result.get("overall_risk", "low")
     cfg = RISK_CONFIG.get(overall, RISK_CONFIG["low"])
     triggered = result.get("triggered_rules", [])
@@ -222,11 +238,11 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
         <div class="rule-card tip-card">
             <div class="rule-header">
                 <span class="rule-badge tip-badge">📋 操作提示</span>
-                <span class="rule-id">{tip['rule_id']}</span>
-                <span class="rule-name">{tip['rule_name']}</span>
+                <span class="rule-id">{_esc(tip['rule_id'])}</span>
+                <span class="rule-name">{_esc(tip['rule_name'])}</span>
             </div>
             <div class="rule-section">
-                <div class="section-body section-body-pre">{tip.get('ai_remediation') or tip.get('remediation', '')}</div>
+                <div class="section-body section-body-pre">{_esc(tip.get('ai_remediation') or tip.get('remediation', ''))}</div>
             </div>
         </div>"""
 
@@ -261,20 +277,20 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             for m in items:
                 # 合并用途（多条）
                 purposes = m.get("purposes") or ([m["purpose"]] if m.get("purpose") else [])
-                purpose_html = "；".join(purposes)
+                purpose_html = "；".join(_esc(p) for p in purposes)
                 # 来源规则标签
                 rule_ids = m.get("rule_ids", [])
                 rule_names = m.get("rule_names", [])
                 source_tags = "".join(
-                    f'<span class="cl-rule-tag" title="{rule_names[i] if i < len(rule_names) else ""}">'
-                    f'{rid}</span>'
+                    f'<span class="cl-rule-tag" title="{_esc(rule_names[i] if i < len(rule_names) else "")}">'
+                    f'{_esc(rid)}</span>'
                     for i, rid in enumerate(rule_ids)
                 )
                 rows += (
                     f'<div class="checklist-item">'
                     f'<span class="mat-checkbox">☐</span>'
                     f'<div class="cl-item-body">'
-                    f'<div class="cl-item-top"><strong>{m["item"]}</strong>'
+                    f'<div class="cl-item-top"><strong>{_esc(m["item"])}</strong>'
                     f'<span class="cl-sources">{source_tags}</span></div>'
                     f'<div class="mat-purpose">{purpose_html}</div>'
                     f'</div></div>'
@@ -299,9 +315,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
                 f'<div class="audit-item">'
                 f'<span class="audit-check">☐</span>'
                 f'<div class="audit-item-main">'
-                f'<strong>{mat["item"]}</strong>'
+                f'<strong>{_esc(mat["item"])}</strong>'
                 f'<span class="audit-sep"> — </span>'
-                f'<span class="audit-purpose">{mat["purpose"]}</span>'
+                f'<span class="audit-purpose">{_esc(mat["purpose"])}</span>'
                 f"</div></div>"
             )
         mats_block = (
@@ -314,12 +330,12 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     <div class="rule-card manual-card">
         <div class="rule-header">
             <span class="rule-badge manual-badge">🔍 需人工核查</span>
-            <span class="rule-id">{rule["rule_id"]}</span>
-            <span class="rule-name">{rule["rule_name"]}</span>
+            <span class="rule-id">{_esc(rule["rule_id"])}</span>
+            <span class="rule-name">{_esc(rule["rule_name"])}</span>
         </div>
         <div class="rule-section">
             <div class="section-title">⚠️ 核查说明</div>
-            <div class="section-body section-body-pre">{rule["risk_description"]}</div>
+            <div class="section-body section-body-pre">{_esc(rule["risk_description"])}</div>
         </div>
         {mats_block}
     </div>'''
@@ -345,12 +361,12 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             amt_txt = f"{amt:,} 元" if isinstance(amt, (int, float)) else (f"{amt} 元" if amt else "金额未填")
             rows += (
                 f'<div class="excluded-unit-row">'
-                f'<span class="excluded-unit-name">{u.get("name") or "未命名单元"}</span>'
-                f'<span class="excluded-unit-meta">{u.get("declared_type") or "?"} · {amt_txt}</span>'
+                f'<span class="excluded-unit-name">{_esc(u.get("name") or "未命名单元")}</span>'
+                f'<span class="excluded-unit-meta">{_esc(u.get("declared_type") or "?")} · {_esc(amt_txt)}</span>'
                 f'<span class="excluded-unit-tag">已排除列收</span>'
                 f"</div>"
             )
-        supp_txt = "、".join(r["rule_id"] for r in suppressed_rules)
+        supp_txt = "、".join(_esc(r["rule_id"]) for r in suppressed_rules)
         supp_note = f"相应的列收违规规则（{supp_txt}）不适用，未计入风险。" if suppressed_rules else ""
         units_section_html = (
             f'<div class="section-heading">核算单元 · 已排除列收</div>'
@@ -366,23 +382,26 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     if hard_to_service:
         cards = ""
         for f in hard_to_service:
-            sig_html = "".join(f'<span class="hts-signal">{s}</span>' for s in f.get("signals", []))
+            sig_html = "".join(f'<span class="hts-signal">{_esc(s)}</span>' for s in f.get("signals", []))
             ev_html = "".join(
                 f'<div class="audit-item"><span class="audit-check">☐</span>'
-                f'<div class="audit-item-main"><strong>{e}</strong></div></div>'
+                f'<div class="audit-item-main"><strong>{_esc(e)}</strong></div></div>'
                 for e in f.get("required_evidence", [])
             )
             amt = f.get("amount")
             amt_txt = f"{amt:,} 元" if isinstance(amt, (int, float)) else (f"{amt} 元" if amt else "")
+            # suspicion_level 仅用于 CSS 类名，限定白名单避免污染 class 属性
+            _lvl = f.get("suspicion_level", "medium")
+            _lvl = _lvl if _lvl in ("high", "medium", "low") else "medium"
             cards += (
-                f'<div class="hts-card hts-{f.get("suspicion_level", "medium")}">'
+                f'<div class="hts-card hts-{_lvl}">'
                 f'<div class="hts-head">'
-                f'<span class="hts-badge">🔎 {f.get("suspicion_label", "嫌疑")} · 需举证</span>'
-                f'<span class="hts-unit">{f.get("unit_name", "")}</span>'
-                f'<span class="hts-amt">{amt_txt}</span>'
+                f'<span class="hts-badge">🔎 {_esc(f.get("suspicion_label", "嫌疑"))} · 需举证</span>'
+                f'<span class="hts-unit">{_esc(f.get("unit_name", ""))}</span>'
+                f'<span class="hts-amt">{_esc(amt_txt)}</span>'
                 f"</div>"
                 f'<div class="hts-signals">{sig_html}</div>'
-                f'<div class="hts-msg">{f.get("message", "")}</div>'
+                f'<div class="hts-msg">{_esc(f.get("message", ""))}</div>'
                 f'<div class="rule-section audit-materials-section">'
                 f'<div class="section-title">📁 需举证材料</div>'
                 f'<div class="section-body"><div class="audit-mats">{ev_html}</div></div></div>'
@@ -392,6 +411,17 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             f'<div class="section-heading">硬转服务嫌疑 '
             f'<span class="heading-sub">（需举证，非定性结论）</span></div>'
             f"{cards}"
+        )
+
+    # 核算单元缺失软警告（不阻断诊断，仅显著提示退化模式）
+    unit_warning = result.get("unit_warning")
+    unit_warning_html = ""
+    if unit_warning and unit_warning.get("message"):
+        unit_warning_html = (
+            f'<div class="unit-warning-banner">'
+            f'<span class="uw-icon">⚠️</span>'
+            f'<span class="uw-text">{_esc(unit_warning["message"])}</span>'
+            f"</div>"
         )
 
     seg_note = " · 已按业务板块分节分析" if segments else ""
@@ -464,6 +494,23 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .report-header .logo {{ font-size: 13px; opacity: 0.75; margin-bottom: 8px; }}
   .report-header h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 4px; }}
   .report-header .meta {{ font-size: 13px; opacity: 0.8; margin-top: 12px; display:flex; gap:24px; flex-wrap:wrap; }}
+
+  /* 核算单元缺失软警告横幅 */
+  .unit-warning-banner {{
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-left: 4px solid #d97706;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
+  .unit-warning-banner .uw-icon {{ font-size: 18px; line-height: 1.4; flex-shrink: 0; }}
+  .unit-warning-banner .uw-text {{ color: #92400e; font-size: 13px; line-height: 1.6; }}
 
   /* 总体结论卡（与 report_test.html 一致：左侧图标 + 右侧文案列） */
   .overall-card {{
@@ -908,6 +955,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
       </div>
     </div>
   </div>
+
+  <!-- 核算单元缺失软警告（退化模式提示）-->
+  {unit_warning_html}
 
   <!-- 核算单元 · 已排除列收（#8）-->
   {units_section_html}

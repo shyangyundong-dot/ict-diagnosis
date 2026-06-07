@@ -168,6 +168,9 @@ def _get_clause_text(clause_id: str) -> list[dict]:
 _ZERO_MARGIN_HINTS = ("平进平出", "零毛利", "无加价")
 _SUSPICION_LABEL = {"high": "高嫌疑", "medium": "中嫌疑", "low": "低嫌疑"}
 
+# 这些项目类型通常含硬件/施工或多业务块，本应切分核算单元；未切分则硬件排除/硬转服务检测失效。
+_UNIT_EXPECTED_TYPES = {"equipment_sales", "system_integration"}
+
 
 def _is_zero_margin(gross) -> bool:
     if gross is None:
@@ -283,6 +286,19 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
     # #9：硬转服务检测（举证式）——申报服务且列收的单元呈现硬件/施工实质即标记嫌疑，计入整体风险。
     hard_to_service = detect_hard_to_service(accounting_units)
 
+    # 软警告：本应切分核算单元的项目类型却未切分，意味着硬件排除（#8）与硬转服务检测（#9）
+    # 都没跑——诊断退化为项目级单值，结论可能偏严。不阻断提交，只在结果里标记、报告显著提示。
+    unit_warning = None
+    if not accounting_units and any(t in _UNIT_EXPECTED_TYPES for t in type_set):
+        unit_warning = {
+            "level": "warn",
+            "message": (
+                "本次诊断未切分核算单元，硬件/施工的「铁律不列收」排除与「硬转服务」"
+                "举证式检测均未生效，结论按项目级单值给出、可能偏严。建议返回"
+                "「信息解析」面板切分并确认核算单元后重新提交诊断。"
+            ),
+        }
+
     risk_levels = (
         [it["risk_level"] for it in triggered]
         + [f["suspicion_level"] for f in hard_to_service]
@@ -325,6 +341,7 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
         "suppressed_rules": suppressed,
         "accounting_units": accounting_units or [],
         "hard_to_service": hard_to_service,
+        "unit_warning": unit_warning,
         "rule_version": RULE_VERSION,
     }
 

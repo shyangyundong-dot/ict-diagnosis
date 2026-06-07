@@ -122,8 +122,12 @@ const error = ref('')
 const data = ref(null)
 
 function formatAiMsg(text) {
-  const t = text || ''
-  return t
+  // 先转义 HTML 特殊字符再叠加安全格式，避免 v-html 渲染注入（与 ChatView 一致）
+  const escaped = (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')

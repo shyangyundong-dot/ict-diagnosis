@@ -200,6 +200,27 @@ ict-diagnosis/
 
 ---
 
+## 测试
+
+后端测试用 pytest，位于 `backend/tests/`：
+
+```bash
+cd backend
+pip install -r requirements-dev.txt   # 含 pytest（生产 requirements.txt 不含）
+pytest                                 # 配置见 backend/pytest.ini
+```
+
+当前覆盖（纯函数，无需 DB / DeepSeek，秒级跑完）：
+
+- `test_engine_diagnosis.py` —— 规则引擎核心：基础触发、硬件不列收抑制（#8）、硬转服务举证检测（#9）、结果契约键
+- `test_engine_unit_warning.py` —— 核算单元缺失软警告的触发与豁免条件
+- `test_enum_labels.py` —— `ai_chat` 枚举与 `ai_report` 中文标签的完整性（防英文 key 漏到报告）
+- `test_report_escaping.py` —— 报告 HTML 对 AI 输出 / 用户输入 / 规则文本的转义（防 XSS）
+
+新增规则或字段时，建议同步在此补一条断言。
+
+---
+
 ## PDF 导出
 
 如本地安装了 `weasyprint` 生成真正的 PDF；否则自动降级为 HTML 下载。
@@ -215,13 +236,17 @@ pip install weasyprint
 
 ## 生产部署
 
-参考 `deploy/nginx.ict-diagnosis.conf.example`：前端 `npm run build` 后的 `dist` 放静态目录，`/api/*` 反代到 uvicorn。
+两种形态：
+
+**A. Nginx 反代（推荐）**——参考 `deploy/nginx.ict-diagnosis.conf.example`：前端 `npm run build` 后的 `dist` 放静态目录，`/api/*` 反代到 uvicorn。
+
+**B. 单进程自伺服**——若 `frontend/dist` 存在，`main.py` 会直接挂载 `/assets` 静态目录、对非 `api/` 路径做 SPA 回退（返回 `index.html`），无需 Nginx。适合轻量试运行：`npm run build` 后裸跑 uvicorn 即可同时提供 API + 前端。回退分支已做防路径穿越校验（候选路径 `.resolve()` 后必须落在 `dist` 内）；`dist` 不存在则该逻辑不启用，不影响本地开发。
 
 部署前 checklist：
 - [ ] `.env` 设了 `JWT_SECRET`（强随机）+ `INITIAL_ADMIN_*`（首次部署后建议清空 `INITIAL_ADMIN_PASSWORD`）
 - [ ] `.env` 设了 `CORS_ALLOWED_ORIGINS`（你的生产域名）
 - [ ] `data/diagnosis.db` 备份策略已就位
-- [ ] 后端默认监听 `127.0.0.1:8000`，由 Nginx 暴露
+- [ ] 形态 A：后端监听 `127.0.0.1:8000`，由 Nginx 暴露；形态 B：uvicorn 直接监听对外端口（注意此时 `.env`/`data/` 与 `dist` 同处一台机，务必确认上述穿越校验已生效）
 
 ---
 

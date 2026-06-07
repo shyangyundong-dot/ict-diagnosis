@@ -36,6 +36,7 @@ FIELD_VALUE_LABELS = {
         "state_owned": "国企",
         "private": "民企",
         "institution": "事业单位",
+        "government": "政府机关",
         "other": "其他",
     },
     "procurement_method": {
@@ -48,7 +49,9 @@ FIELD_VALUE_LABELS = {
     "gross_margin": {
         "lte_0": "≤0%",
         "lte_3": "1%-3%",
+        "pct_3_4": "3%-4%",
         "pct_4_5": "4%-5%",
+        "pct_5_6": "5%-6%",
         "pct_6_10": "6%-10%",
         "gt_10": "10%以上",
     },
@@ -91,6 +94,7 @@ FIELD_VALUE_LABELS = {
         "telecom_controlled": "是（电信采购-仓储-交付）",
         "supplier_direct": "否（供应商直发客户）",
     },
+    "related_party_checked": {"yes": "是", "no": "否", "na": "不适用"},
     "service_delivery_mode": {
         "all_telecom": "全部自有团队",
         "mixed": "混合（自有+外包）",

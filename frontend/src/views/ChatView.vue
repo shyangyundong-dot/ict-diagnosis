@@ -184,10 +184,31 @@
                     </select>
                   </label>
                 </div>
+                <!-- 硬转服务举证字段：仅服务单元相关（引擎据 gross/logistics/has_self_capability 判嫌疑） -->
+                <div v-if="u.declared_type === '服务'" class="unit-row-fields unit-row-evidence">
+                  <label>毛利
+                    <input v-model="u.gross" placeholder="如 8% 或 平进平出" @change="persistUnits" />
+                  </label>
+                  <label>物流
+                    <select v-model="u.logistics" @change="persistUnits">
+                      <option value="self">电信主控</option>
+                      <option value="supplier_direct">供应商直发</option>
+                      <option value="unknown">未知</option>
+                    </select>
+                  </label>
+                  <label>自有能力
+                    <select v-model="u.has_self_capability" @change="persistUnits">
+                      <option :value="true">有</option>
+                      <option :value="false">无</option>
+                      <option value="unknown">未知</option>
+                    </select>
+                  </label>
+                </div>
                 <div v-if="u.reason" class="unit-reason">{{ u.reason }}</div>
               </div>
             </div>
             <button v-if="accountingUnits.length > 0 || sessionId" class="units-add-btn" @click="addUnit">＋ 添加核算单元</button>
+            <p v-if="unitsSaveError" class="units-save-error">⚠ {{ unitsSaveError }}</p>
           </section>
 
           <!-- ② 待补充信息 -->
@@ -335,6 +356,7 @@ function closeDrawer() { drawerOpen.value = false }
 // ── 核算单元（#7，见 docs/adr/0002）──
 const accountingUnits = ref([])
 const unitsLoading = ref(false)
+const unitsSaveError = ref('')
 const UNIT_TYPES = ['设备', '施工', '服务', '标品', '其他']
 
 function listedLabel(v) {
@@ -385,8 +407,10 @@ async function persistUnits() {
   if (!sessionId.value) return
   try {
     await saveUnits(sessionId.value, accountingUnits.value)
+    unitsSaveError.value = ''
   } catch (e) {
-    // 保存失败不打断填报；下次编辑会再尝试
+    // 保存失败不打断填报，但要让用户看见——否则误以为已确认（编辑任意字段会再尝试）
+    unitsSaveError.value = '核算单元未能保存，请检查网络后重试'
   }
 }
 
@@ -486,7 +510,13 @@ onMounted(async () => {
 })
 
 function formatAiMsg(text) {
-  return text
+  // 先转义 HTML 特殊字符，杜绝 AI 文本里的标签被 v-html 当真渲染（XSS）；
+  // 再叠加我们自己的安全格式（段落 / 换行 / 加粗）。* 不转义，故 **加粗** 仍生效。
+  const escaped = (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -977,7 +1007,9 @@ function resetChat() {
   font-size: 12px; padding: 4px 6px; border: 1px solid var(--slate-200); border-radius: 6px; color: var(--slate-800);
 }
 .unit-row-fields select:disabled { background: var(--slate-50); color: var(--slate-400); }
+.unit-row-evidence { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--slate-200); }
 .unit-reason { font-size: 11px; color: var(--slate-500); margin-top: 6px; line-height: 1.5; }
+.units-save-error { margin-top: 8px; font-size: 12px; color: var(--red-600, #dc2626); }
 .units-add-btn {
   margin-top: 8px; width: 100%; padding: 6px; border: 1px dashed var(--slate-300);
   border-radius: 8px; background: transparent; color: var(--slate-500); font-size: 12px; cursor: pointer;

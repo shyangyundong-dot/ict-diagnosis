@@ -118,6 +118,12 @@
         </div>
       </div>
 
+      <!-- 核算单元缺失软警告（退化模式提示）-->
+      <div v-if="unitWarning" class="unit-warning-banner">
+        <span class="uw-icon">⚠️</span>
+        <span class="uw-text">{{ unitWarning.message }}</span>
+      </div>
+
       <!-- 核算单元 · 已排除列收（#8）-->
       <template v-if="excludedUnits.length">
         <div class="section-heading">核算单元 · 已排除列收</div>
@@ -481,6 +487,7 @@ function formatUnitAmount(amt) {
 
 // 硬转服务嫌疑（#9，举证式）
 const hardToService = computed(() => data.value.hard_to_service || [])
+const unitWarning = computed(() => data.value.unit_warning || null)
 
 // 计算总风险条数（支持segments和平铺两种数据结构）
 const totalTriggered = computed(() => {
@@ -826,6 +833,15 @@ onMounted(async () => {
   background: var(--slate-50); border: 1px solid var(--slate-200);
   border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;
 }
+
+/* ── 核算单元缺失软警告横幅 ── */
+.unit-warning-banner {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: #fffbeb; border: 1px solid #fcd34d; border-left: 4px solid #d97706;
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+}
+.unit-warning-banner .uw-icon { font-size: 18px; line-height: 1.4; flex-shrink: 0; }
+.unit-warning-banner .uw-text { color: #92400e; font-size: 13px; line-height: 1.6; }
 
 /* ── 已排除列收的核算单元（#8）── */
 .excluded-units-box {
