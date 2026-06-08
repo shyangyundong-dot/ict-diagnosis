@@ -21,3 +21,6 @@ review-bundles/
 
 # 本地/二期备忘录等，不入库
 docs/
+
+# 使用说明 Word 由 scripts/usage-doc/generate.py 生成，二进制不入库（源头脚本+截图已入库）
+ICT项目合规诊断工具-使用说明.docx
