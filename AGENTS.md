@@ -52,7 +52,7 @@
 ## 关键约定
 
 ### 规则库
-- 规则文件：`backend/rules/rules.json`（当前 v1.7，共 35 条，编号 R01–R37，跳号 R04/R33）
+- 规则文件：`backend/rules/rules.json`（当前 v1.7.1，共 35 条，编号 R01–R37，跳号 R04/R33）
 - 条款原文：`backend/rules/clauses.json`
 - 改规则无需动代码，重启后端即生效；每次更新必须修改 `version` 字段
 - `"logic": "MANUAL"` 的规则（R01/R05/R13/R19/R20/R28）系统不自动触发，统一收集进 `manual_check_rules` 在报告中单独展示
@@ -66,17 +66,24 @@
 
 ### 核算单元（2026-06-05 上线，见 `CONTEXT.md` / `docs/adr/0002`）
 - 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，每块有：申报类型（设备/施工/服务/标品）、金额、税率、毛利、物流、是否有自有能力、是否列收
-- AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）
+- AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）。**服务单元卡片可编辑驱动硬转服务检测的三信号** `gross`/`logistics`/`has_self_capability`（取值对齐引擎：`logistics ∈ {self, supplier_direct, unknown}`、`has_self_capability ∈ {true, false, unknown}`）
 - **硬件/施工 铁律不列收**：申报为设备/施工的单元自动排除列收 → 引擎据此**抑制 R24/R25/R26**（原靠扁平 `hardware_construction` 误触发），报告显示「已排除列收」
 - **硬转服务（举证式）**：申报为服务且列收的单元若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列需举证材料，**不自动定性**；嫌疑等级计入整体风险
 - **毛利率只对服务侧有意义**：扁平 `gross_margin`（喂 R03/R12/R32）语义为「**应列收/服务侧毛利**」——硬件/施工铁律不列收、其毛利与列收正交，AI 抽取与用户填写**绝不能把设备/施工毛利混算进来**（否则混合单元下被硬件块拖进 `lte_0` 会误报三零/过手）。**已知缺口**：毛利规则仍按项目级单一值，尚未像硬转服务那样按服务单元逐块跑（需引擎逐单元迭代，见 `docs/adr/0002` 后续修订）
+- **核算单元缺失软警告**：含设备/系统集成等本应切分单元的项目（`_UNIT_EXPECTED_TYPES`）若未切分就提交，引擎注入 `unit_warning`——**不阻断诊断**，但报告顶部黄条提示「硬件排除/硬转服务检测未生效，结论可能偏严」。纯服务/软件单单元项目不触发
 - 贯穿原则：**工具标风险、举证定生死，不替审核人定罪**
-- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果新增 `accounting_units` / `suppressed_rules` / `hard_to_service`
+- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果新增 `accounting_units` / `suppressed_rules` / `hard_to_service` / `unit_warning`
 
 ### AI 个性化分析
 - 提交确认后，规则引擎先跑（同步），AI 分析后跑（并发，每条规则一次调用）
 - AI 分析完成才返回响应，可能需要 30–90 秒——这是设计意图，报告必须完整
 - 对话历史全部作为 AI 分析上下文（不截断条数，每条限 500 字）
+
+### 报告渲染安全（HTML 转义红线）
+- **所有拼进 HTML 的动态内容（AI 输出 / 用户输入如 `bpm_id`/核算单元名 / 规则库文本）必须先转义**，杜绝 XSS（token 存 localStorage，影响放大）
+- 后端 `report_generator.py`：用模块内 `_esc()`（`html.escape`）包裹每个 f-string 插值；`suspicion_level` 这类拼进 class 属性的值要走白名单
+- 前端 `ChatView.vue`/`TraceabilityView.vue` 的 `formatAiMsg()`：先转义 `&<>` 再叠加 `**加粗**`/`<br>` 等安全格式（`v-html` 渲染 AI 回复）
+- 新增任何「动态值 → HTML」路径时，默认转义；回归测试见 `backend/tests/test_report_escaping.py`
 
 ### 账号与权限（2026-05-23 上线）
 - **三级角色**：`admin`（全权 + 管账号）/ `reviewer`（线条主管）/ `user`（员工）
@@ -171,11 +178,21 @@
 
 ---
 
+## 测试
+
+- pytest 测试位于 `backend/tests/`，配置 `backend/pytest.ini`，依赖 `backend/requirements-dev.txt`（生产 `requirements.txt` 不含 pytest）
+- 跑：`cd backend && pip install -r requirements-dev.txt && pytest`（纯函数、无需 DB/DeepSeek、秒级）
+- 覆盖：引擎核心（#8 抑制 / #9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义
+- 新增规则/字段/「动态值→HTML」路径时，同步补一条断言
+
+---
+
 ## 部署相关
 
 - Nginx 反代示例：`deploy/nginx.ict-diagnosis.conf.example`（前端静态 + 后端 `/api` 同源代理）
 - 代码审查打包脚本：`scripts/make-review-bundle.sh`
 - start.sh 用 `--reload-exclude '.venv'` 避免误重载
+- 试运行服务器 `183.131.86.84:8090`：systemd 服务 `ict-diagnosis`，单进程伺服 API + 前端 dist，scp 部署（非 git/nginx）。具体步骤见 agent 记忆 `project-deploy-runbook`
 
 ---
 

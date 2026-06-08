@@ -82,7 +82,7 @@ ict-diagnosis/
 │   │   └── admin.py                  # admin 后台路由（require_admin 守卫）
 │   └── rules/
 │       ├── engine.py                 # 规则引擎核心
-│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.7）
+│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.7.1）
 │       └── clauses.json              # 条款原文库
 ├── frontend/
 │   ├── src/
@@ -184,6 +184,7 @@ ict-diagnosis/
 - `accounting_units`：核算单元列表（项目按业务块切分；硬件/施工铁律不列收）
 - `suppressed_rules`：因硬件/施工已正确归类为不列收而被抑制的规则（R24/R25/R26）
 - `hard_to_service`：硬转服务嫌疑（举证式，按服务单元检测零毛利/直发/无自有能力）
+- `unit_warning`：核算单元缺失软警告（含设备/系统集成等本应切分单元的项目却未切分时置位；不阻断诊断，报告顶部黄条提示退化模式）
 
 完整接口文档：http://localhost:8000/docs
 
