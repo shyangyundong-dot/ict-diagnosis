@@ -221,6 +221,71 @@ def detect_hard_to_service(accounting_units: list | None) -> list[dict]:
     return flags
 
 
+# ── 控制权角色自查（总额法资格，见 docs/adr/0003）──
+# 官方 19 角色 / 8 情形矩阵：10 个角色进判定。必选电信全占 6/7/9（涉硬件再加 16），
+# 三组二选一各占一个 → 落在 8 情形之一 → 总额法资格成立。缺任一必要元素 → 资格不成立（举证式 high）。
+_CTRL_MANDATORY = ("6", "7", "9")            # 必选（恒）
+_CTRL_HW_MANDATORY = "16"                     # 到货验收及设备管理，仅涉硬件时必选
+_CTRL_EITHER_OR = (                           # 三组二选一，每组至少占一个
+    ("方案", ("3", "4")),
+    ("交付实施方案", ("10", "11")),
+    ("实施开发", ("13", "14")),
+)
+_CTRL_ROLE_NAMES = {
+    "3": "解决方案设计者", "4": "解决方案整合确定者",
+    "6": "应标与签约统筹者", "7": "软硬件采购决策者",
+    "9": "全流程交付管理与质量责任者",
+    "10": "交付实施方案设计者", "11": "交付实施方案确定及责任者",
+    "13": "项目实施/技术开发/联调实施者", "14": "项目实施/技术开发主导与联调实操责任者",
+    "16": "到货验收及设备管理者",
+}
+
+
+def assess_control_roles(control_roles, has_hardware: bool, wants_full: bool = False) -> dict | None:
+    """控制权角色自查：判总额法资格（项目级，见 docs/adr/0003）。
+
+    control_roles: 电信占据的关键角色编号列表（字符串/数字皆可）。
+    has_hardware: 项目是否涉硬件（决定角色 16 是否必选）。
+    wants_full: 项目从字段上看是否「明显奔全额列收」（R21 触发或服务自有/混合交付）。
+                影响 unfilled 时的严重度：奔全额 → medium「控制权未自证」；否则 tip 不打扰。
+    返回 None 表示无需呈现；否则 dict（status / level / message / missing）。
+    举证式：资格不成立给 high + 举证路，不自动定性。high 仅在已填角色时落。
+    """
+    if not control_roles:
+        if wants_full:
+            return {
+                "status": "unfilled_wants_full", "level": "medium", "missing": [],
+                "message": (
+                    "本项目从字段上看明显奔全额列收，但尚未通过官方 19 角色/8 情形框架自查控制权。"
+                    "请在「信息解析」面板填写电信占据的关键角色，否则全额列收资格未自证。"
+                ),
+            }
+        return {
+            "status": "unfilled", "level": "tip", "missing": [],
+            "message": "尚未填写控制权关键角色，未参与总额法资格判定。如需自证，请在「信息解析」面板补充。",
+        }
+    held = {str(r).strip() for r in control_roles if str(r).strip()}
+    mandatory = list(_CTRL_MANDATORY) + ([_CTRL_HW_MANDATORY] if has_hardware else [])
+    missing_mandatory = [r for r in mandatory if r not in held]
+    missing_groups = [name for name, grp in _CTRL_EITHER_OR if not (set(grp) & held)]
+
+    if not missing_mandatory and not missing_groups:
+        return {
+            "status": "eligible", "level": "low", "missing": [],
+            "message": "电信占据全部必选关键角色及三组二选一各一，符合总额法资格（控制权成立）。",
+        }
+
+    miss = [f"必选角色{r} {_CTRL_ROLE_NAMES.get(r, '')}" for r in missing_mandatory]
+    miss += [f"二选一·{name}（三组中此组一个都未占）" for name in missing_groups]
+    return {
+        "status": "ineligible", "level": "high", "missing": miss,
+        "message": (
+            "按官方 19 角色/8 情形框架，电信未占齐关键角色，总额法资格不成立、定性倾向代理人/净额。"
+            "如维持全额列收，须举证以下缺失的关键角色实际到位。"
+        ),
+    }
+
+
 def run_diagnosis(project_type: str | list | None, fields: dict, accounting_units: list | None = None) -> dict:
     triggered = []
     tips = []
@@ -299,10 +364,29 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
             ),
         }
 
+    # 控制权角色自查（总额法资格，见 docs/adr/0003）——计算式，不进 rules.json
+    _has_hardware = (fields.get("hardware_construction") == "yes") or any(
+        u.get("declared_type") in {"设备", "施工"} for u in (accounting_units or [])
+    )
+    # 「想全额」信号（跨项目类型）：R21 触发（系统集成/软件开发能力够主要责任人）
+    # 或 服务自有/混合交付（服务类奔全额；全外包已被 R31 判差额，不算）
+    _r21_fired = any(it["rule_id"] == "R21" for it in triggered)
+    _wants_full = _r21_fired or fields.get("service_delivery_mode") in {"all_telecom", "mixed"}
+    control_roles_check = assess_control_roles(
+        fields.get("control_roles"), _has_hardware, wants_full=_wants_full,
+    )
+    # R09 纯外采已报「无控制权」时，抑制本检查的「资格不成立」，避免对同一项目重复报两条无控制权
+    _r09_fired = any(it["rule_id"] == "R09" for it in triggered)
+    if control_roles_check and control_roles_check["status"] == "ineligible" and _r09_fired:
+        control_roles_check = None
+
     risk_levels = (
         [it["risk_level"] for it in triggered]
         + [f["suspicion_level"] for f in hard_to_service]
     )
+    # 资格不成立(high) 或 奔全额但未自证(medium) 计入整体风险；普通未填(tip)/成立(low) 不抬高
+    if control_roles_check and control_roles_check["status"] in ("ineligible", "unfilled_wants_full"):
+        risk_levels.append(control_roles_check["level"])
     overall_risk = max(risk_levels, key=lambda r: RISK_ORDER.get(r, 0)) if risk_levels else "low"
 
     # 汇总审计材料：同时覆盖风险项和操作提示，合并同名材料的多条用途和来源规则
@@ -342,6 +426,7 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
         "accounting_units": accounting_units or [],
         "hard_to_service": hard_to_service,
         "unit_warning": unit_warning,
+        "control_roles_check": control_roles_check,
         "rule_version": RULE_VERSION,
     }
 

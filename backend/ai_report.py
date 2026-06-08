@@ -95,6 +95,14 @@ FIELD_VALUE_LABELS = {
         "supplier_direct": "否（供应商直发客户）",
     },
     "related_party_checked": {"yes": "是", "no": "否", "na": "不适用"},
+    "control_roles": {
+        "3": "解决方案设计者", "4": "解决方案整合确定者",
+        "6": "应标与签约统筹者", "7": "软硬件采购决策者",
+        "9": "全流程交付管理与质量责任者",
+        "10": "交付实施方案设计者", "11": "交付实施方案确定及责任者",
+        "13": "项目实施/技术开发/联调实施者", "14": "项目实施/技术开发主导与联调实操责任者",
+        "16": "到货验收及设备管理者",
+    },
     "service_delivery_mode": {
         "all_telecom": "全部自有团队",
         "mixed": "混合（自有+外包）",
@@ -139,6 +147,7 @@ FIELD_LABELS = {
     "has_prepayment": "是否含预付款",
     "has_advance_funding": "是否存在电信垫资",
     "related_party_checked": "三方关联关系是否已核查",
+    "control_roles": "控制权关键角色（总额法资格自查）",
 }
 
 
