@@ -192,8 +192,9 @@
 
 - pytest 测试位于 `backend/tests/`，配置 `backend/pytest.ini`，依赖 `backend/requirements-dev.txt`（生产 `requirements.txt` 不含 pytest）
 - 跑：`cd backend && pip install -r requirements-dev.txt && pytest`（纯函数、无需 DB/DeepSeek、秒级）
-- 覆盖：引擎核心（#8 抑制 / #9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义
+- 覆盖（48 条）：引擎核心（#8 抑制 / #9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义、**控制权角色矩阵**（`test_engine_control_roles.py` 8 情形/缺必选/缺二选一/涉硬件 16/R09 抑制/wants_full 跨类型/hardware_construction 类型契约）、**控制权板块渲染**（`test_report_control_roles.py` 4 status / class 白名单 / XSS）、**API 返回契约**（`test_api_diagnose_payload.py` 防 SPA 静默丢键）
 - 新增规则/字段/「动态值→HTML」路径时，同步补一条断言
+- **类型契约红线**：`ai_chat FIELD_DEFINITIONS` 的 `options` 是各字段的真值类型 source-of-truth。bool 字段（如 `hardware_construction`、`supplier_confirmed`、`is_end_user`）engine/前端必须用 `is True` / `=== true` 比较，不要写 `== "yes"`；字符串字段（如 `has_telecom_capability` 取 `"yes"/"no"/"partial"`）按字段定义的字面值比较
 
 ---
 
