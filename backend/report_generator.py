@@ -413,6 +413,43 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             f"{cards}"
         )
 
+    # 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）
+    ctrl = result.get("control_roles_check")
+    control_roles_section_html = ""
+    if ctrl:
+        _status = ctrl.get("status", "")
+        # status 拼进 class 属性，白名单防注入
+        _safe_status = _status if _status in (
+            "eligible", "ineligible", "unfilled", "unfilled_wants_full"
+        ) else "unfilled"
+        _badge = {
+            "eligible": "✅ 总额法资格成立",
+            "ineligible": "❌ 总额法资格不成立",
+            "unfilled_wants_full": "⚠️ 控制权未自证",
+            "unfilled": "ⓘ 未参与判定",
+        }.get(_status, "ⓘ")
+        missing = ctrl.get("missing") or []
+        miss_html = ""
+        if missing:
+            miss_html = (
+                f'<div class="ctrl-missing">'
+                f'<div class="ctrl-missing-title">缺失的关键角色 / 二选一组：</div>'
+                f'<ul class="ctrl-missing-list">'
+                + "".join(f"<li>{_esc(m)}</li>" for m in missing)
+                + "</ul></div>"
+            )
+        control_roles_section_html = (
+            f'<div class="section-heading">控制权角色自查 '
+            f'<span class="heading-sub">（总额法资格，项目级）</span></div>'
+            f'<div class="ctrl-card ctrl-{_safe_status}">'
+            f'<div class="ctrl-head">'
+            f'<span class="ctrl-badge">{_badge}</span>'
+            f"</div>"
+            f'<div class="ctrl-msg">{_esc(ctrl.get("message", ""))}</div>'
+            f"{miss_html}"
+            f"</div>"
+        )
+
     # 核算单元缺失软警告（不阻断诊断，仅显著提示退化模式）
     unit_warning = result.get("unit_warning")
     unit_warning_html = ""
@@ -610,6 +647,40 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     background: #fef3c7; color: #b45309;
   }}
   .hts-msg {{ font-size: 13px; color: #475569; line-height: 1.7; margin-bottom: 10px; }}
+
+  /* 控制权角色自查（总额法资格，见 docs/adr/0003）—— 4 种 status 各自配色 */
+  .ctrl-card {{
+    border: 1px solid #e5e7eb;
+    border-left: 4px solid #9ca3af;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    background: #f9fafb;
+  }}
+  .ctrl-card.ctrl-eligible {{
+    border-color: #bbf7d0; border-left-color: #16a34a; background: #f0fdf4;
+  }}
+  .ctrl-card.ctrl-ineligible {{
+    border-color: #fecaca; border-left-color: #dc2626; background: #fef2f2;
+  }}
+  .ctrl-card.ctrl-unfilled_wants_full {{
+    border-color: #fcd34d; border-left-color: #d97706; background: #fffbeb;
+  }}
+  .ctrl-card.ctrl-unfilled {{
+    border-color: #e5e7eb; border-left-color: #9ca3af; background: #f9fafb;
+  }}
+  .ctrl-head {{ margin-bottom: 8px; }}
+  .ctrl-badge {{
+    font-size: 13px; font-weight: 700;
+  }}
+  .ctrl-eligible .ctrl-badge {{ color: #15803d; }}
+  .ctrl-ineligible .ctrl-badge {{ color: #b91c1c; }}
+  .ctrl-unfilled_wants_full .ctrl-badge {{ color: #92400e; }}
+  .ctrl-unfilled .ctrl-badge {{ color: #4b5563; }}
+  .ctrl-msg {{ font-size: 13px; color: #374151; line-height: 1.7; margin-bottom: 8px; }}
+  .ctrl-missing {{ margin-top: 10px; padding: 10px 12px; background: rgba(255,255,255,0.6); border-radius: 6px; }}
+  .ctrl-missing-title {{ font-size: 12px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }}
+  .ctrl-missing-list {{ margin: 0; padding-left: 20px; font-size: 12px; color: #374151; line-height: 1.7; }}
   .heading-ai-tag {{
     font-size: 12px;
     padding: 2px 8px;
@@ -964,6 +1035,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
 
   <!-- 硬转服务嫌疑（#9，举证式）-->
   {hts_section_html}
+
+  <!-- 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）-->
+  {control_roles_section_html}
 
   <!-- 风险详情：segments模式按板块分节，降级模式平铺 -->
   {_risk_section_html}

@@ -160,6 +160,23 @@
         </div>
       </template>
 
+      <!-- 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）-->
+      <template v-if="controlRolesCheck">
+        <div class="section-heading">控制权角色自查 <span class="heading-sub">（总额法资格，项目级）</span></div>
+        <div class="ctrl-card" :class="`ctrl-${ctrlStatusClass}`">
+          <div class="ctrl-head">
+            <span class="ctrl-badge">{{ ctrlBadge }}</span>
+          </div>
+          <div class="ctrl-msg">{{ controlRolesCheck.message }}</div>
+          <div v-if="controlRolesCheck.missing && controlRolesCheck.missing.length" class="ctrl-missing">
+            <div class="ctrl-missing-title">缺失的关键角色 / 二选一组：</div>
+            <ul class="ctrl-missing-list">
+              <li v-for="(m, i) in controlRolesCheck.missing" :key="i">{{ m }}</li>
+            </ul>
+          </div>
+        </div>
+      </template>
+
       <!-- ===== 分段模式（AI丰富化成功）===== -->
       <template v-if="data.segments && data.segments.length">
         <div class="section-heading">风险详情分析
@@ -488,6 +505,20 @@ function formatUnitAmount(amt) {
 // 硬转服务嫌疑（#9，举证式）
 const hardToService = computed(() => data.value.hard_to_service || [])
 const unitWarning = computed(() => data.value.unit_warning || null)
+
+// 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）
+const controlRolesCheck = computed(() => data.value.control_roles_check || null)
+const _CTRL_STATUS_WHITELIST = ['eligible', 'ineligible', 'unfilled', 'unfilled_wants_full']
+const ctrlStatusClass = computed(() => {
+  const s = controlRolesCheck.value?.status
+  return _CTRL_STATUS_WHITELIST.includes(s) ? s : 'unfilled'
+})
+const ctrlBadge = computed(() => ({
+  eligible: '✅ 总额法资格成立',
+  ineligible: '❌ 总额法资格不成立',
+  unfilled_wants_full: '⚠️ 控制权未自证',
+  unfilled: 'ⓘ 未参与判定',
+}[controlRolesCheck.value?.status] || 'ⓘ'))
 
 // 计算总风险条数（支持segments和平铺两种数据结构）
 const totalTriggered = computed(() => {
@@ -882,6 +913,30 @@ onMounted(async () => {
 .hts-evidence { border-top: 1px solid #fcd9b6; padding-top: 8px; }
 .hts-evidence-title { font-size: 12px; font-weight: 600; color: #92400e; margin-bottom: 4px; }
 .hts-evidence-item { font-size: 12px; color: var(--slate-600); padding: 2px 0; }
+
+/* ── 控制权角色自查（总额法资格，见 docs/adr/0003）── */
+.ctrl-card {
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid #9ca3af;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: #f9fafb;
+}
+.ctrl-card.ctrl-eligible { border-color: #bbf7d0; border-left-color: #16a34a; background: #f0fdf4; }
+.ctrl-card.ctrl-ineligible { border-color: #fecaca; border-left-color: #dc2626; background: #fef2f2; }
+.ctrl-card.ctrl-unfilled_wants_full { border-color: #fcd34d; border-left-color: #d97706; background: #fffbeb; }
+.ctrl-card.ctrl-unfilled { border-color: #e5e7eb; border-left-color: #9ca3af; background: #f9fafb; }
+.ctrl-head { margin-bottom: 8px; }
+.ctrl-badge { font-size: 13px; font-weight: 700; }
+.ctrl-eligible .ctrl-badge { color: #15803d; }
+.ctrl-ineligible .ctrl-badge { color: #b91c1c; }
+.ctrl-unfilled_wants_full .ctrl-badge { color: #92400e; }
+.ctrl-unfilled .ctrl-badge { color: #4b5563; }
+.ctrl-msg { font-size: 13px; color: #374151; line-height: 1.7; margin-bottom: 8px; }
+.ctrl-missing { margin-top: 10px; padding: 10px 12px; background: rgba(255, 255, 255, 0.6); border-radius: 6px; }
+.ctrl-missing-title { font-size: 12px; font-weight: 600; color: var(--slate-500); margin-bottom: 4px; }
+.ctrl-missing-list { margin: 0; padding-left: 20px; font-size: 12px; color: #374151; line-height: 1.7; }
 
 /* ── 板块（与后端 report_generator 蓝色分块一致）── */
 .segment-block {
