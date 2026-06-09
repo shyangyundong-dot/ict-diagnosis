@@ -211,6 +211,30 @@
             <p v-if="unitsSaveError" class="units-save-error">⚠ {{ unitsSaveError }}</p>
           </section>
 
+          <!-- 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）-->
+          <section class="fields-section ctrl-roles-section">
+            <div class="section-head">
+              <span class="section-head-title">控制权角色</span>
+              <span class="section-head-meta ctrl-roles-meta">总额法资格 · 自查</span>
+            </div>
+            <div class="ctrl-roles-hint">
+              <p>电信在本项目占据哪些<strong>关键角色</strong>（决策/主导/责任）？</p>
+              <p class="ctrl-roles-hint-sub">勾选标准：<strong>必选项每项都要 + 三组二选一每组至少占一个</strong> = 总额法资格成立。AI 解析不出的多需手动确认。</p>
+            </div>
+            <div v-for="grp in ROLE_GROUPS" :key="grp.title"
+                 v-show="grp.kind !== 'mandatory_hw' || hasHardware"
+                 class="ctrl-role-group" :class="`ctrl-grp-${grp.kind}`">
+              <div class="ctrl-grp-title">{{ grp.title }}</div>
+              <label v-for="r in grp.items" :key="r.id" class="ctrl-role-line">
+                <input type="checkbox"
+                       :checked="isRoleChecked(r.id)"
+                       @change="toggleControlRole(r.id, $event.target.checked)" />
+                <span class="ctrl-role-id">{{ r.id }}</span>
+                <span class="ctrl-role-name">{{ r.name }}</span>
+              </label>
+            </div>
+          </section>
+
           <!-- ② 待补充信息 -->
           <section class="fields-section section-pending-block">
             <div class="section-head">
@@ -414,19 +438,71 @@ async function persistUnits() {
   }
 }
 
+// 独立段已经管的字段，不在「已解析」/「待补充」段重复渲染
+const DEDICATED_FIELDS = new Set(['control_roles'])
+
 const parsedFieldKeys = computed(() => {
   const missing = new Set(missingFields.value)
   const defKeys = Object.keys(fieldDefinitions.value)
   const cur = Object.keys(currentFields.value)
   const ordered = []
   for (const k of defKeys) {
-    if (cur.includes(k) && !missing.has(k)) ordered.push(k)
+    if (cur.includes(k) && !missing.has(k) && !DEDICATED_FIELDS.has(k)) ordered.push(k)
   }
   for (const k of cur) {
-    if (!ordered.includes(k) && !missing.has(k)) ordered.push(k)
+    if (!ordered.includes(k) && !missing.has(k) && !DEDICATED_FIELDS.has(k)) ordered.push(k)
   }
   return ordered
 })
+
+// ── 控制权角色自查（总额法资格，见 docs/adr/0003）──
+const ROLE_GROUPS = [
+  { title: '必选（每项都要）', kind: 'mandatory', items: [
+    { id: '6', name: '应标与签约统筹者' },
+    { id: '7', name: '软硬件采购决策者' },
+    { id: '9', name: '全流程交付管理与质量责任者' },
+  ]},
+  { title: '必选 · 涉硬件时', kind: 'mandatory_hw', items: [
+    { id: '16', name: '到货验收及设备管理者' },
+  ]},
+  { title: '方案（二选一，至少占一个）', kind: 'either_or', items: [
+    { id: '3', name: '解决方案设计者' },
+    { id: '4', name: '解决方案整合确定者' },
+  ]},
+  { title: '交付实施方案（二选一，至少占一个）', kind: 'either_or', items: [
+    { id: '10', name: '交付实施方案设计者' },
+    { id: '11', name: '交付实施方案确定及责任者' },
+  ]},
+  { title: '实施开发（二选一，至少占一个）', kind: 'either_or', items: [
+    { id: '13', name: '项目实施/技术开发/联调实施者' },
+    { id: '14', name: '项目实施/技术开发主导与联调实操责任者' },
+  ]},
+]
+
+const hasHardware = computed(() =>
+  accountingUnits.value.some(u => u.declared_type === '设备' || u.declared_type === '施工')
+  || currentFields.value.hardware_construction === 'yes'
+)
+
+const controlRolesList = computed(() => {
+  const v = currentFields.value.control_roles
+  return Array.isArray(v) ? v.map(String) : []
+})
+
+function isRoleChecked(id) {
+  return controlRolesList.value.includes(id)
+}
+
+function toggleControlRole(id, checked) {
+  const arr = [...controlRolesList.value]
+  if (checked) {
+    if (!arr.includes(id)) arr.push(id)
+  } else {
+    const j = arr.indexOf(id)
+    if (j >= 0) arr.splice(j, 1)
+  }
+  onFieldUpdate('control_roles', arr)
+}
 
 function normalizeFieldsFromServer(f) {
   const out = { ...(f || {}) }
@@ -1015,6 +1091,43 @@ function resetChat() {
   border-radius: 8px; background: transparent; color: var(--slate-500); font-size: 12px; cursor: pointer;
 }
 .units-add-btn:hover { border-color: var(--blue-400); color: var(--blue-600); }
+
+/* ── 控制权角色自查（总额法资格，见 docs/adr/0003）── */
+.ctrl-roles-section {}
+.ctrl-roles-meta {
+  font-size: 11px; color: var(--slate-500); background: var(--slate-50);
+  padding: 2px 8px; border-radius: 8px; border: 1px solid var(--slate-200);
+}
+.ctrl-roles-hint {
+  font-size: 12px; color: var(--slate-600); line-height: 1.6; margin-bottom: 10px;
+}
+.ctrl-roles-hint p { margin: 0 0 4px 0; }
+.ctrl-roles-hint-sub { color: var(--slate-500); font-size: 11px; }
+.ctrl-role-group {
+  margin-bottom: 8px; padding: 8px 10px; border-radius: 6px;
+}
+.ctrl-grp-mandatory, .ctrl-grp-mandatory_hw {
+  background: var(--slate-50); border: 1px solid var(--slate-200);
+}
+.ctrl-grp-either_or {
+  background: transparent; border: 1px dashed var(--slate-300);
+}
+.ctrl-grp-title {
+  font-size: 11px; font-weight: 600; color: var(--slate-500);
+  margin-bottom: 6px; text-transform: none;
+}
+.ctrl-role-line {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 0; font-size: 12px; color: var(--slate-800);
+  cursor: pointer;
+}
+.ctrl-role-line input { accent-color: var(--blue-600); }
+.ctrl-role-id {
+  display: inline-block; min-width: 22px; padding: 1px 6px;
+  background: var(--slate-100); color: var(--slate-700);
+  border-radius: 4px; font-size: 11px; font-weight: 600; text-align: center;
+}
+.ctrl-role-name { flex: 1; }
 
 .field-list {
   display: flex;
