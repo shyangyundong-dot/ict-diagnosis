@@ -479,9 +479,10 @@ const ROLE_GROUPS = [
   ]},
 ]
 
+// hardware_construction 字段定义为 bool（options: [true, false]），不是 "yes"/"no" 字符串
 const hasHardware = computed(() =>
   accountingUnits.value.some(u => u.declared_type === '设备' || u.declared_type === '施工')
-  || currentFields.value.hardware_construction === 'yes'
+  || currentFields.value.hardware_construction === true
 )
 
 const controlRolesList = computed(() => {

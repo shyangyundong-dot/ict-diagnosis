@@ -356,6 +356,16 @@ async def confirm_and_diagnose(
         "audit_checklist": result["audit_checklist"],
         "rule_version": result["rule_version"],
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
+        # 与 /api/diagnose/{id} 保持 result 键一致（前端 confirm 后只用 diagnosis_id 跳 /report/:id
+        # 让 ReportView 重新拉，故当前不依赖；补齐防未来其他客户端直接用 confirm 返回时再踩坑）
+        "ai_enriched": result.get("ai_enriched", False),
+        "segments": result.get("segments"),
+        "is_mixed_project": result.get("is_mixed_project", False),
+        "accounting_units": result.get("accounting_units", []),
+        "suppressed_rules": result.get("suppressed_rules", []),
+        "hard_to_service": result.get("hard_to_service", []),
+        "unit_warning": result.get("unit_warning"),
+        "control_roles_check": result.get("control_roles_check"),
     }
 
 
@@ -582,6 +592,10 @@ async def get_diagnosis(
         "accounting_units": result.get("accounting_units", []),
         "suppressed_rules": result.get("suppressed_rules", []),
         "hard_to_service": result.get("hard_to_service", []),
+        # 以下两键之前漏传给 SPA，导致 /report/:id 静默丢失「核算单元未切分黄条」(ADR 0002)
+        # 与「控制权角色自查」板块 (ADR 0003)——HTML/PDF 直链报告不受影响（generate_report_html 直接读 result）
+        "unit_warning": result.get("unit_warning"),
+        "control_roles_check": result.get("control_roles_check"),
     }
 
 

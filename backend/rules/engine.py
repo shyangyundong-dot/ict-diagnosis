@@ -365,7 +365,8 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
         }
 
     # 控制权角色自查（总额法资格，见 docs/adr/0003）——计算式，不进 rules.json
-    _has_hardware = (fields.get("hardware_construction") == "yes") or any(
+    # hardware_construction 字段定义为 bool（options: [True, False]），不是 "yes"/"no" 字符串
+    _has_hardware = (fields.get("hardware_construction") is True) or any(
         u.get("declared_type") in {"设备", "施工"} for u in (accounting_units or [])
     )
     # 「想全额」信号（跨项目类型）：R21 触发（系统集成/软件开发能力够主要责任人）

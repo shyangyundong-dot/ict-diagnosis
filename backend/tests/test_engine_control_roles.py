@@ -62,6 +62,33 @@ def test_hardware_makes_16_mandatory():
     assert assess_control_roles(combo + ["16"], has_hardware=True)["status"] == "eligible"
 
 
+def test_hardware_construction_type_contract():
+    """类型契约（回归外部审查 P1）：hardware_construction 字段是 bool（ai_chat options: [True, False]），
+    不是 "yes"/"no" 字符串。引擎必须识别 bool True 才能把角色 16 变必选——否则用户填了"含硬件"
+    但缺 16 会被错判 eligible，让本应不满足总额法的项目误判通过。
+    """
+    fields = {
+        "project_type": ["system_integration"],
+        "hardware_construction": True,  # bool True，按字段定义
+        "control_roles": ["6", "7", "9", "3", "10", "13"],  # 占齐除 16 外所有
+    }
+    result = run_diagnosis(["system_integration"], fields)
+    assert result["control_roles_check"]["status"] == "ineligible", \
+        "hardware_construction=True 应让 16 必选；当前若为 eligible 说明类型判断回退到 == 'yes'"
+    assert any("16" in m for m in result["control_roles_check"]["missing"])
+
+
+def test_hardware_construction_false_does_not_require_16():
+    """对照：hardware_construction=False（非含硬件）→ 16 不必选 → 同样组合 eligible。"""
+    fields = {
+        "project_type": ["system_integration"],
+        "hardware_construction": False,
+        "control_roles": ["6", "7", "9", "3", "10", "13"],
+    }
+    result = run_diagnosis(["system_integration"], fields)
+    assert result["control_roles_check"]["status"] == "eligible"
+
+
 def test_run_diagnosis_injects_control_roles_check():
     """结果契约：run_diagnosis 注入 control_roles_check。"""
     result = run_diagnosis(["system_integration"],
