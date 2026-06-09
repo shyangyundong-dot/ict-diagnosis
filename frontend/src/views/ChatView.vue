@@ -493,6 +493,8 @@ function isRoleChecked(id) {
   return controlRolesList.value.includes(id)
 }
 
+// debounce 提交：连续勾选 N 个角色合并成 1 次 PATCH，避免并发响应乱序覆盖（review 问题 #4）
+let _ctrlCommitTimer = null
 function toggleControlRole(id, checked) {
   const arr = [...controlRolesList.value]
   if (checked) {
@@ -501,7 +503,13 @@ function toggleControlRole(id, checked) {
     const j = arr.indexOf(id)
     if (j >= 0) arr.splice(j, 1)
   }
-  onFieldUpdate('control_roles', arr)
+  // 立刻更新本地（UI 即时反应），延迟 300ms 提交（连续点击只发一次 PATCH）
+  currentFields.value.control_roles = arr
+  if (_ctrlCommitTimer) clearTimeout(_ctrlCommitTimer)
+  _ctrlCommitTimer = setTimeout(() => {
+    _ctrlCommitTimer = null
+    onFieldUpdate('control_roles', controlRolesList.value)
+  }, 300)
 }
 
 function normalizeFieldsFromServer(f) {
