@@ -82,7 +82,7 @@ ict-diagnosis/
 │   │   └── admin.py                  # admin 后台路由（require_admin 守卫）
 │   └── rules/
 │       ├── engine.py                 # 规则引擎核心
-│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.7.1）
+│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.7.3）
 │       └── clauses.json              # 条款原文库
 ├── frontend/
 │   ├── src/
@@ -185,6 +185,7 @@ ict-diagnosis/
 - `suppressed_rules`：因硬件/施工已正确归类为不列收而被抑制的规则（R24/R25/R26）
 - `hard_to_service`：硬转服务嫌疑（举证式，按服务单元检测零毛利/直发/无自有能力）
 - `unit_warning`：核算单元缺失软警告（含设备/系统集成等本应切分单元的项目却未切分时置位；不阻断诊断，报告顶部黄条提示退化模式）
+- `control_roles_check`：控制权角色自查（项目级总额法资格，对应官方 19 角色/8 情形矩阵；4 种 status——eligible/ineligible/unfilled_wants_full/unfilled）
 
 完整接口文档：http://localhost:8000/docs
 

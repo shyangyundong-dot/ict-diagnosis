@@ -52,7 +52,7 @@
 ## 关键约定
 
 ### 规则库
-- 规则文件：`backend/rules/rules.json`（当前 v1.7.1，共 35 条，编号 R01–R37，跳号 R04/R33）
+- 规则文件：`backend/rules/rules.json`（当前 v1.7.3，共 35 条，编号 R01–R37，跳号 R04/R33）
 - 条款原文：`backend/rules/clauses.json`
 - 改规则无需动代码，重启后端即生效；每次更新必须修改 `version` 字段
 - `"logic": "MANUAL"` 的规则（R01/R05/R13/R19/R20/R28）系统不自动触发，统一收集进 `manual_check_rules` 在报告中单独展示
@@ -72,7 +72,17 @@
 - **毛利率只对服务侧有意义**：扁平 `gross_margin`（喂 R03/R12/R32）语义为「**应列收/服务侧毛利**」——硬件/施工铁律不列收、其毛利与列收正交，AI 抽取与用户填写**绝不能把设备/施工毛利混算进来**（否则混合单元下被硬件块拖进 `lte_0` 会误报三零/过手）。**已知缺口**：毛利规则仍按项目级单一值，尚未像硬转服务那样按服务单元逐块跑（需引擎逐单元迭代，见 `docs/adr/0002` 后续修订）
 - **核算单元缺失软警告**：含设备/系统集成等本应切分单元的项目（`_UNIT_EXPECTED_TYPES`）若未切分就提交，引擎注入 `unit_warning`——**不阻断诊断**，但报告顶部黄条提示「硬件排除/硬转服务检测未生效，结论可能偏严」。纯服务/软件单单元项目不触发
 - 贯穿原则：**工具标风险、举证定生死，不替审核人定罪**
-- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果新增 `accounting_units` / `suppressed_rules` / `hard_to_service` / `unit_warning`
+- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果新增 `accounting_units` / `suppressed_rules` / `hard_to_service` / `unit_warning` / `control_roles_check`
+
+### 控制权角色自查（2026-06-09 上线，见 `CONTEXT.md` / `docs/adr/0003`）
+- **项目级**控制权判定，对应省公司《产数ICT业务高质量发展专项部署材料》（2026-06-03）**官方 19 角色 / 8 情形矩阵**。与单元级硬转服务（ADR 0002）是「同一根问题——控制权——的两个尺度」，分层互补不冲突
+- **判定**：10 角色进矩阵——必选 6/7/9（涉硬件加 16）+ 三组二选一各占一个（方案 {3\|4} / 交付实施 {10\|11} / 实施开发 {13\|14}）→ 落在 8 情形之一 → 资格成立。必选与二选一**等权**
+- **字段** `control_roles`：多选数组（`multi: True`，非必填），10 个编号字符串。AI 解析能抽则自动（明确说"主导/决策/责任"才抽，不臆测），否则面板手动填——spike 已证伪"AI 预勾"，角色通常需手填
+- **采集形态**：「信息解析」面板独立段「控制权角色」，按 4 组分区（必选灰底 / 三组二选一虚框），角色 16 由 `hasHardware`（核算单元含设备/施工 或 `hardware_construction==yes`）联动显示
+- **定级（举证式）**：占齐→`eligible/low`（绿正向提示）；缺任一必要元素→`ineligible/high`（红，定性倾向代理人/净额、可举证翻案）；未填但项目奔全额（R21 触发 或 `service_delivery_mode ∈ {all_telecom, mixed}`）→`unfilled_wants_full/medium`（黄）；未填+不奔全额→`unfilled/tip`（灰，留痕不打扰）
+- **防撞**：R09 纯外采触发时**抑制**本检查的 ineligible（避免对纯外采项目重复报无控制权）
+- **融合不替换**：R08 控制权证据核查（C1-C6 → 附件1 六维度官方表述，rules.json v1.7.3）保留为**会计要件视角**；本检查为**流程角色视角**，两套官方框架并立、互补不重复
+- 引擎入口 `assess_control_roles(control_roles, has_hardware, wants_full)`（不进 `rules.json`，组合逻辑现有 DSL 表达不了，沿用计算式模式）；结果键 `control_roles_check`
 
 ### AI 个性化分析
 - 提交确认后，规则引擎先跑（同步），AI 分析后跑（并发，每条规则一次调用）
