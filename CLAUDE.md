@@ -67,7 +67,7 @@
 ### 核算单元（2026-06-05 上线，见 `CONTEXT.md` / `docs/adr/0002`）
 - 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，每块有：申报类型（设备/施工/服务/标品）、金额、税率、毛利、物流、是否有自有能力、是否列收
 - AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）。**服务单元卡片可编辑驱动硬转服务检测的三信号** `gross`/`logistics`/`has_self_capability`（取值对齐引擎：`logistics ∈ {self, supplier_direct, unknown}`、`has_self_capability ∈ {true, false, unknown}`）
-- **硬件/施工 铁律不列收**：申报为设备/施工的单元自动排除列收 → 引擎据此**抑制 R24/R25/R26**（原靠扁平 `hardware_construction` 误触发），报告显示「已排除列收」
+- **硬件/施工 铁律不列收**：申报为设备/施工的单元自动排除列收 → 引擎据此**抑制 R24/R25/R26**（原靠扁平 `hardware_construction` 误触发），报告显示「已排除列收」。2026-06-10 起由 `enforce_hardware_no_listing()`（`rules/engine.py`）在核算单元三个入库路径（AI 切分 / 用户确认保存 / 提交诊断兜底）**数据层强制 `listed=False`**——此前只靠 AI prompt + 前端改类型时强制，AI 草稿漏标会让抑制静默失效且前端选择器禁用无法手动修复
 - **硬转服务（举证式）**：申报为服务且列收的单元若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列需举证材料，**不自动定性**；嫌疑等级计入整体风险
 - **毛利率只对服务侧有意义**：扁平 `gross_margin`（喂 R03/R12/R32）语义为「**应列收/服务侧毛利**」——硬件/施工铁律不列收、其毛利与列收正交，AI 抽取与用户填写**绝不能把设备/施工毛利混算进来**（否则混合单元下被硬件块拖进 `lte_0` 会误报三零/过手）。**已知缺口**：毛利规则仍按项目级单一值，尚未像硬转服务那样按服务单元逐块跑（需引擎逐单元迭代，见 `docs/adr/0002` 后续修订）
 - **核算单元缺失软警告**：含设备/系统集成等本应切分单元的项目（`_UNIT_EXPECTED_TYPES`）若未切分就提交，引擎注入 `unit_warning`——**不阻断诊断**，但报告顶部黄条提示「硬件排除/硬转服务检测未生效，结论可能偏严」。纯服务/软件单单元项目不触发
@@ -77,7 +77,7 @@
 ### 控制权角色自查（2026-06-09 上线，见 `CONTEXT.md` / `docs/adr/0003`）
 - **项目级**控制权判定，对应省公司《产数ICT业务高质量发展专项部署材料》（2026-06-03）**官方 19 角色 / 8 情形矩阵**。与单元级硬转服务（ADR 0002）是「同一根问题——控制权——的两个尺度」，分层互补不冲突
 - **判定**：10 角色进矩阵——必选 6/7/9（涉硬件加 16）+ 三组二选一各占一个（方案 {3\|4} / 交付实施 {10\|11} / 实施开发 {13\|14}）→ 落在 8 情形之一 → 资格成立。必选与二选一**等权**
-- **字段** `control_roles`：多选数组（`multi: True`，非必填），10 个编号字符串。AI 解析能抽则自动（明确说"主导/决策/责任"才抽，不臆测），否则面板手动填——spike 已证伪"AI 预勾"，角色通常需手填
+- **字段** `control_roles`：多选数组（`multi: True`，非必填），10 个编号字符串。AI 解析能抽则自动（明确说"主导/决策/责任"才抽，不臆测），否则面板手动填——spike 已证伪"AI 预勾"，角色通常需手填。引擎对字符串误输入（如 `"6,7,9"`）按分隔符拆分容错，不逐字符迭代（2026-06-10 加固）
 - **采集形态**：「信息解析」面板独立段「控制权角色」，按 4 组分区（必选灰底 / 三组二选一虚框），角色 16 由 `hasHardware`（核算单元含设备/施工 或 `hardware_construction==yes`）联动显示
 - **定级（举证式）**：占齐→`eligible/low`（绿正向提示）；缺任一必要元素→`ineligible/high`（红，定性倾向代理人/净额、可举证翻案）；未填但项目奔全额（R21 触发 或 `service_delivery_mode ∈ {all_telecom, mixed}`）→`unfilled_wants_full/medium`（黄）；未填+不奔全额→`unfilled/tip`（灰，留痕不打扰）
 - **防撞**：R09 纯外采触发时**抑制**本检查的 ineligible（避免对纯外采项目重复报无控制权）
@@ -192,7 +192,7 @@
 
 - pytest 测试位于 `backend/tests/`，配置 `backend/pytest.ini`，依赖 `backend/requirements-dev.txt`（生产 `requirements.txt` 不含 pytest）
 - 跑：`cd backend && pip install -r requirements-dev.txt && pytest`（纯函数、无需 DB/DeepSeek、秒级）
-- 覆盖（48 条）：引擎核心（#8 抑制 / #9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义、**控制权角色矩阵**（`test_engine_control_roles.py` 8 情形/缺必选/缺二选一/涉硬件 16/R09 抑制/wants_full 跨类型/hardware_construction 类型契约）、**控制权板块渲染**（`test_report_control_roles.py` 4 status / class 白名单 / XSS）、**API 返回契约**（`test_api_diagnose_payload.py` 防 SPA 静默丢键）
+- 覆盖（60 条）：引擎核心（#8 抑制 / #9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义、**控制权角色矩阵**（`test_engine_control_roles.py` 8 情形/缺必选/缺二选一/涉硬件 16/R09 抑制/wants_full 跨类型/hardware_construction 类型契约/字符串输入按分隔符拆分容错）、**控制权板块渲染**（`test_report_control_roles.py` 4 status / class 白名单 / XSS)、**API 返回契约**（`test_api_diagnose_payload.py` 防 SPA 静默丢键）、**铁律不列收数据层归一**（`test_units_iron_rule.py`：`enforce_hardware_no_listing` 对 AI 草稿漏标硬件单元强制 `listed=False`，三个入库路径契约扫描——否则 #8 抑制静默失效且前端选择器禁用无法手动修复）
 - 新增规则/字段/「动态值→HTML」路径时，同步补一条断言
 - **类型契约红线**：`ai_chat FIELD_DEFINITIONS` 的 `options` 是各字段的真值类型 source-of-truth。bool 字段（如 `hardware_construction`、`supplier_confirmed`、`is_end_user`）engine/前端必须用 `is True` / `=== true` 比较，不要写 `== "yes"`；字符串字段（如 `has_telecom_capability` 取 `"yes"/"no"/"partial"`）按字段定义的字面值比较
 
