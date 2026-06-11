@@ -161,6 +161,33 @@ def test_filled_eligible_overrides_wants_full():
     assert result["control_roles_check"]["status"] == "eligible"
 
 
+def test_string_input_is_split_not_char_iterated():
+    """回归：AI 偶尔把数组误输出成字符串。此前被逐字符迭代——"10"/"13" 等两位编号
+    永远拆不出，给用户展示错误的缺失清单。现按常见分隔符拆分后正常判定。"""
+    r = assess_control_roles("6,7,9,3,10,13", has_hardware=False)
+    assert r["status"] == "eligible"
+
+
+def test_string_input_mixed_separators():
+    """中文顿号/逗号/分号/空格混用也能拆。"""
+    r = assess_control_roles("6、7，9 3；10/13", has_hardware=False)
+    assert r["status"] == "eligible"
+
+
+def test_string_input_missing_groups_reports_correct_missing():
+    """字符串输入缺三组二选一时，missing 清单必须准确（不再是字符迭代的产物）。"""
+    r = assess_control_roles("6,7,9", has_hardware=False)
+    assert r["status"] == "ineligible"
+    assert len(r["missing"]) == 3
+    assert all("二选一" in m for m in r["missing"])
+
+
+def test_blank_string_is_unfilled():
+    """空白/纯分隔符字符串等价未填，不误入 ineligible。"""
+    assert assess_control_roles("", has_hardware=False)["status"] == "unfilled"
+    assert assess_control_roles(" , 、 ", has_hardware=False)["status"] == "unfilled"
+
+
 def test_r09_suppresses_control_check():
     """R09 纯外采触发时，抑制角色检查的『资格不成立』，避免重复报无控制权。"""
     # 构造 R09 触发：capability_ratio=all_external + contract_content_same=yes + has_telecom_capability=no

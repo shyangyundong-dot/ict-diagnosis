@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
 from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord, Line, User
-from rules.engine import run_diagnosis, RULE_VERSION, get_realtime_warnings
+from rules.engine import (
+    run_diagnosis,
+    RULE_VERSION,
+    get_realtime_warnings,
+    enforce_hardware_no_listing,
+)
 from ai_chat import (
     chat_with_ai,
     segment_accounting_units,
@@ -241,6 +246,8 @@ async def segment_session_units(
 
     messages: list = json.loads(session.messages_json)
     units = await segment_accounting_units(messages)
+    # 铁律不列收（#8）：AI 草稿可能给硬件单元漏标 listed，数据层强制归一
+    enforce_hardware_no_listing(units)
     session.accounting_units_json = json.dumps(units, ensure_ascii=False)
     db.commit()
     return {"session_id": session_id, "accounting_units": units}
@@ -262,9 +269,10 @@ async def save_session_units(
     if not session or not can_resume_session(user, session):
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    session.accounting_units_json = json.dumps(body.accounting_units, ensure_ascii=False)
+    units = enforce_hardware_no_listing(body.accounting_units)  # 铁律不列收（#8）数据层归一
+    session.accounting_units_json = json.dumps(units, ensure_ascii=False)
     db.commit()
-    return {"session_id": session_id, "accounting_units": body.accounting_units}
+    return {"session_id": session_id, "accounting_units": units}
 
 
 @router.get("/field-definitions")
@@ -314,6 +322,9 @@ async def confirm_and_diagnose(
         accounting_units = json.loads(session.accounting_units_json or "[]")
     except Exception:
         accounting_units = []
+    # 铁律不列收（#8）兜底：存量会话可能残留归一前的硬件单元，诊断与落库快照都用归一后数据
+    enforce_hardware_no_listing(accounting_units)
+    session.accounting_units_json = json.dumps(accounting_units, ensure_ascii=False)
     result = run_diagnosis(pt_for_rules, fields_for_diagnosis, accounting_units=accounting_units)
 
     chat_history = None

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 # 加载规则库和条款原文库
 _RULES_PATH = os.path.join(os.path.dirname(__file__), "rules.json")
@@ -171,6 +172,22 @@ _SUSPICION_LABEL = {"high": "高嫌疑", "medium": "中嫌疑", "low": "低嫌�
 # 这些项目类型通常含硬件/施工或多业务块，本应切分核算单元；未切分则硬件排除/硬转服务检测失效。
 _UNIT_EXPECTED_TYPES = {"equipment_sales", "system_integration"}
 
+# 申报为这些类型的核算单元适用「铁律不列收」（#8，见 docs/adr/0002）
+_HW_UNIT_TYPES = {"设备", "施工"}
+
+
+def enforce_hardware_no_listing(units: list | None) -> list:
+    """铁律不列收（#8）：申报为设备/施工的核算单元强制 listed=False，原地归一并返回。
+
+    AI 切分草稿可能给硬件单元留下 listed=null/"uncertain"/true，而前端对硬件单元
+    禁用了列收选择器、用户无法手动修复——不在数据层归一，run_diagnosis 内对
+    R24/R25/R26 的抑制会静默失效（误报回归）。核算单元的所有入库路径都应过此函数。
+    """
+    for u in units or []:
+        if isinstance(u, dict) and u.get("declared_type") in _HW_UNIT_TYPES:
+            u["listed"] = False
+    return units or []
+
 
 def _is_zero_margin(gross) -> bool:
     if gross is None:
@@ -248,9 +265,13 @@ def assess_control_roles(control_roles, has_hardware: bool, wants_full: bool = F
     has_hardware: 项目是否涉硬件（决定角色 16 是否必选）。
     wants_full: 项目从字段上看是否「明显奔全额列收」（R21 触发或服务自有/混合交付）。
                 影响 unfilled 时的严重度：奔全额 → medium「控制权未自证」；否则 tip 不打扰。
-    返回 None 表示无需呈现；否则 dict（status / level / message / missing）。
+    返回 dict（status / level / message / missing）；R09 防撞置 None 在 run_diagnosis 内处理。
     举证式：资格不成立给 high + 举证路，不自动定性。high 仅在已填角色时落。
     """
+    # AI 偶尔把数组误输出成字符串（如 "6,7,9"）——按分隔符拆开，绝不能逐字符迭代
+    # （否则 "10"/"13" 等两位编号永远拆不出，给用户展示错误的缺失清单）
+    if isinstance(control_roles, str):
+        control_roles = [p for p in re.split(r"[,;/\s、，；]+", control_roles) if p]
     if not control_roles:
         if wants_full:
             return {
@@ -338,9 +359,8 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
     # （#9 会让 R24/R25 改按服务单元的「硬转服务」实质触发，而非项目含硬件即触发。）
     suppressed = []
     if accounting_units:
-        hw_types = {"设备", "施工"}
         has_listed_hardware = any(
-            (u.get("declared_type") in hw_types) and (u.get("listed") is not False)
+            (u.get("declared_type") in _HW_UNIT_TYPES) and (u.get("listed") is not False)
             for u in accounting_units
         )
         if not has_listed_hardware:
@@ -367,7 +387,7 @@ def run_diagnosis(project_type: str | list | None, fields: dict, accounting_unit
     # 控制权角色自查（总额法资格，见 docs/adr/0003）——计算式，不进 rules.json
     # hardware_construction 字段定义为 bool（options: [True, False]），不是 "yes"/"no" 字符串
     _has_hardware = (fields.get("hardware_construction") is True) or any(
-        u.get("declared_type") in {"设备", "施工"} for u in (accounting_units or [])
+        u.get("declared_type") in _HW_UNIT_TYPES for u in (accounting_units or [])
     )
     # 「想全额」信号（跨项目类型）：R21 触发（系统集成/软件开发能力够主要责任人）
     # 或 服务自有/混合交付（服务类奔全额；全外包已被 R31 判差额，不算）
