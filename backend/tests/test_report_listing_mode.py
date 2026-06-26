@@ -10,7 +10,7 @@ import report_generator as rg
 def _base_result(listing):
     return {
         "overall_risk": "medium", "overall_risk_label": "中风险",
-        "rule_version": "v1.7.3", "ai_enriched": False,
+        "rule_version": "v1.8.0", "ai_enriched": False,
         "triggered_rules": [], "tips": [], "audit_checklist": [], "manual_check_rules": [],
         "accounting_units": [], "hard_to_service": [], "unit_warning": None,
         "control_roles_check": None,
