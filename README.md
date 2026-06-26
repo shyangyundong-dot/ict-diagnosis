@@ -81,8 +81,9 @@ ict-diagnosis/
 │   │   ├── auth.py                   # 登录 / 改密 / /me
 │   │   └── admin.py                  # admin 后台路由（require_admin 守卫）
 │   └── rules/
-│       ├── engine.py                 # 规则引擎核心
-│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.7.3）
+│       ├── engine.py                 # 规则引擎核心 + 列收模式分类器（classify_listing_mode）
+│       ├── rules.json                # 规则库（R01-R37，跳号 R04/R33，当前 v1.8.0）
+│       ├── whitelist.json            # 集团白名单（27 号文，喂列收模式分类器）
 │       └── clauses.json              # 条款原文库
 ├── frontend/
 │   ├── src/
@@ -181,8 +182,9 @@ ict-diagnosis/
 - `manual_check_rules`：需人工逐项核查的规则（系统无法自动判断）
 - `tips`：操作提示（不计入风险等级）
 - `audit_checklist`：汇总审计材料清单
-- `accounting_units`：核算单元列表（项目按业务块切分；硬件/施工铁律不列收）
-- `suppressed_rules`：因硬件/施工已正确归类为不列收而被抑制的规则（R24/R25/R26）
+- `accounting_units`：核算单元列表（项目按业务块切分；`listed` 为列收模式分类器的派生输出）
+- `listing_mode`：列收模式判定（27 号文，级联四模式：资本/服务整合/单一履约·白名单/收支差净额；含 mode/full_listing/占比/资格闸/单元列收派生/硬否决/软提示）
+- `suppressed_rules`：被抑制的规则（R24/R25 误申报轴让位单元级硬转服务 #9）
 - `hard_to_service`：硬转服务嫌疑（举证式，按服务单元检测零毛利/直发/无自有能力）
 - `unit_warning`：核算单元缺失软警告（含设备/系统集成等本应切分单元的项目却未切分时置位；不阻断诊断，报告顶部黄条提示退化模式）
 - `control_roles_check`：控制权角色自查（项目级总额法资格，对应官方 19 角色/8 情形矩阵；4 种 status——eligible/ineligible/unfilled_wants_full/unfilled）
@@ -197,6 +199,7 @@ ict-diagnosis/
 
 - **规则逻辑**：编辑 `backend/rules/rules.json`
 - **条款原文**：编辑 `backend/rules/clauses.json`
+- **集团白名单**：编辑 `backend/rules/whitelist.json`（27 号文可全额列收的标准化硬件/成品软件大类目录）
 
 更新后重启后端即生效。每次更新请修改 `version` 字段，历史诊断记录会保留对应的规则版本号。
 
@@ -214,7 +217,10 @@ pytest                                 # 配置见 backend/pytest.ini
 
 当前覆盖（纯函数，无需 DB / DeepSeek，秒级跑完）：
 
-- `test_engine_diagnosis.py` —— 规则引擎核心：基础触发、硬件不列收抑制（#8）、硬转服务举证检测（#9）、结果契约键
+- `test_engine_diagnosis.py` —— 规则引擎核心：基础触发、误申报抑制（R24/R25 让位 #9）、硬转服务举证检测（#9）、结果契约键
+- `test_engine_listing_mode.py` —— 列收模式分类器（27 号文）：四模式/级联/两套占比/准入闸/控制权闸/物权否决/listed 派生
+- `test_report_listing_mode.py` —— 列收模式判定板块渲染（四模式 / class 白名单 / XSS）
+- `test_rules_listing_alignment.py` —— 全额/差额规则与 listing_mode 并立对齐（reframe 后触发不变、并立共存、版本上调）
 - `test_engine_unit_warning.py` —— 核算单元缺失软警告的触发与豁免条件
 - `test_enum_labels.py` —— `ai_chat` 枚举与 `ai_report` 中文标签的完整性（防英文 key 漏到报告）
 - `test_report_escaping.py` —— 报告 HTML 对 AI 输出 / 用户输入 / 规则文本的转义（防 XSS）

@@ -43,7 +43,7 @@
 
 ```
 登录 → 用户自然语言描述 → DeepSeek 提取结构化字段 + 切分核算单元 → 用户确认
-→ 规则引擎 run_diagnosis()（按核算单元抑制硬件/施工误报 + 硬转服务检测）→ DeepSeek AI 个性化分析
+→ 规则引擎 run_diagnosis()（列收模式级联分类 + 硬转服务检测 + 控制权自查）→ DeepSeek AI 个性化分析
 → 报告写入数据库（含 created_by + line_id + 核算单元快照）→ 前端按角色过滤展示 / PDF 下载
 ```
 
@@ -52,8 +52,9 @@
 ## 关键约定
 
 ### 规则库
-- 规则文件：`backend/rules/rules.json`（当前 v1.7.3，共 35 条，编号 R01–R37，跳号 R04/R33）
+- 规则文件：`backend/rules/rules.json`（当前 v1.8.0，共 35 条，编号 R01–R37，跳号 R04/R33）
 - 条款原文：`backend/rules/clauses.json`
+- 集团白名单：`backend/rules/whitelist.json`（27 号文，版本化大类粒度，喂列收模式分类器，见下「列收模式」）
 - 改规则无需动代码，重启后端即生效；每次更新必须修改 `version` 字段
 - `"logic": "MANUAL"` 的规则（R01/R05/R13/R19/R20/R28）系统不自动触发，统一收集进 `manual_check_rules` 在报告中单独展示
 - 规则覆盖广东电信「六到位核查清单」六个维度（客情掌握 / 方案总控 / 谈判应标自主 / 采购自主 / 项目强管理 / 运维自主）
@@ -65,14 +66,25 @@
 - BPM 商机编号存入和查询时统一转大写
 
 ### 核算单元（2026-06-05 上线，见 `CONTEXT.md` / `docs/adr/0002`）
-- 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，每块有：申报类型（设备/施工/服务/标品）、金额、税率、毛利、物流、是否有自有能力、是否列收
-- AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）。**服务单元卡片可编辑驱动硬转服务检测的三信号** `gross`/`logistics`/`has_self_capability`（取值对齐引擎：`logistics ∈ {self, supplier_direct, unknown}`、`has_self_capability ∈ {true, false, unknown}`）
-- **硬件/施工 铁律不列收**：申报为设备/施工的单元自动排除列收 → 引擎据此**抑制 R24/R25/R26**（原靠扁平 `hardware_construction` 误触发），报告显示「已排除列收」。2026-06-10 起由 `enforce_hardware_no_listing()`（`rules/engine.py`）在核算单元三个入库路径（AI 切分 / 用户确认保存 / 提交诊断兜底）**数据层强制 `listed=False`**——此前只靠 AI prompt + 前端改类型时强制，AI 草稿漏标会让抑制静默失效且前端选择器禁用无法手动修复
-- **硬转服务（举证式）**：申报为服务且列收的单元若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列需举证材料，**不自动定性**；嫌疑等级计入整体风险
-- **毛利率只对服务侧有意义**：扁平 `gross_margin`（喂 R03/R12/R32）语义为「**应列收/服务侧毛利**」——硬件/施工铁律不列收、其毛利与列收正交，AI 抽取与用户填写**绝不能把设备/施工毛利混算进来**（否则混合单元下被硬件块拖进 `lte_0` 会误报三零/过手）。**已知缺口**：毛利规则仍按项目级单一值，尚未像硬转服务那样按服务单元逐块跑（需引擎逐单元迭代，见 `docs/adr/0002` 后续修订）
-- **核算单元缺失软警告**：含设备/系统集成等本应切分单元的项目（`_UNIT_EXPECTED_TYPES`）若未切分就提交，引擎注入 `unit_warning`——**不阻断诊断**，但报告顶部黄条提示「硬件排除/硬转服务检测未生效，结论可能偏严」。纯服务/软件单单元项目不触发
+- 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，每块有：申报类型（设备/施工/服务/标品）、金额、税率、毛利、物流、是否有自有能力、**是否属集团白名单**（`whitelisted` 三态，仅设备/标品有意义）。**列收方式（`listed`）不再是用户填的字段，而是分类器派生输出**（见下「列收模式」）
+- AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）。**服务单元卡片可编辑驱动硬转服务检测的三信号** `gross`/`logistics`/`has_self_capability`（取值对齐引擎：`logistics ∈ {self, supplier_direct, unknown}`、`has_self_capability ∈ {true, false, unknown}`）；**设备/标品单元卡片可编辑 `whitelisted`**（`true`/`false`/`unknown`，AI 提议、用户确认、`unknown` 保守当非白名单）
+- **单元角色（27 号文重构后，见 docs/adr/0004）**：第一遍项目级判列收模式时单元是**数据采集层**（贡献申报类型/金额/白名单/利润算占比）；走不通退第二遍单元才是**兜底判定单位**。`enforce_hardware_no_listing()` 语义已从「无条件钉死 `listed=False`」降级为「**设默认净额**」（铁律→默认兜底），分类器反向 upgrade 合格全额单元
+- **硬转服务（举证式）**：申报为服务且列收的单元若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列需举证材料，**不自动定性**；嫌疑等级计入整体风险。与列收模式正交（误申报轴 vs 正当申报硬件的全额/净额轴）
+- **服务侧毛利率 `gross_margin`**（喂 R03/R12/R32/硬转服务）语义为「**应列收/服务侧毛利**」，AI 抽取与用户填写**绝不能把设备/施工毛利混算进来**（否则被硬件块拖进 `lte_0` 误报三零/过手）。**项目整体利润率另立 `overall_margin`**（含硬件、只喂列收模式门槛 ≥10%/≥5%，严禁喂三零/过手）——两者同源不同用、严禁互串
+- **核算单元缺失软警告**：含设备/系统集成等本应切分单元的项目（`_UNIT_EXPECTED_TYPES`）若未切分就提交，引擎注入 `unit_warning`——**不阻断诊断**，但报告顶部黄条提示「列收模式/硬转服务检测未生效，结论可能偏严」。纯服务/软件单单元项目不触发
 - 贯穿原则：**工具标风险、举证定生死，不替审核人定罪**
-- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果新增 `accounting_units` / `suppressed_rules` / `hard_to_service` / `unit_warning` / `control_roles_check`
+- 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果含 `accounting_units` / `suppressed_rules` / `hard_to_service` / `unit_warning` / `control_roles_check` / **`listing_mode`**
+
+### 列收模式（2026-06-26 上线，见 `CONTEXT.md` / `docs/adr/0004`）
+- **集团 27 号文重构**：旧「硬件/施工铁律不列收」被推翻——集团白名单硬件/成品软件在「门槛 + 控制权」齐备时可全额列收，「净额」从铁律降级为**默认兜底**
+- **分类器** `classify_listing_mode(type_set, fields, units, control_status)`（`rules/engine.py` 计算式，不进 rules.json）：**级联**——第一遍项目级实质路由（资本/服务整合/单一履约/净额）套全额，过线整项目全额；走不通退第二遍逐单元白名单兜底。就地把合格全额单元的 `listed` 置 True（**派生输出**）
+- **四模式实质路由**（非门槛排队）：①电信投资设备打包→资本（留出口、打标，不实现收投比门槛）②重大整合（`major_integration`）→服务整合 ③标准白名单+单独履约→单一履约·白名单 ④都不是→收支差净额
+- **两套占比公式**（逐字核对 27 号文）：服务整合 `(设备+施工)/项目整体 ≤60%`（集成施工进分子）；单一履约场景一 `(设备+标品)/(设备+标品+服务) ≤80%`（施工排除出分母）。详见 `CONTEXT.md`「两套占比公式」词条
+- **门槛字段**：`overall_margin`（≥10%服务整合/≥5%单一履约）；**全额准入闸硬/软分治**——硬否决=`customer_type` 闭集外（仅 private/other 软，state_owned/institution/government 过）+ `payment_terms != standard`；软=`ownership_transfer`/`collective_procurement_ratio`
+- **控制权是所有全额模式的总闸门**：`control_status != "eligible"` → 全部硬件落净额
+- **时点法 v1 走轻做**：占比默认全算非周期 + 报告口径提示 + 人工复核兜，未加 `recurring` 字段（升级触发点见 ADR 0004）
+- **存量规则对齐**（v1.8.0）：R24/R25（误申报轴）让位单元级硬转服务 #9、被抑制；R26（物权轴）升格为单元级全额否决闸、保留为真实风险；R21/R22/R23（全额/差额单值判定）reframe 为服务/控制权视角，与 listing_mode 并立不互否
+- 结果键 `listing_mode`（mode/full_listing/ratios/gates/unit_decisions/blockers/softs）；报告「列收模式判定」板块 + 前端「信息解析」面板「列收模式信息」独立段
 
 ### 控制权角色自查（2026-06-09 上线，见 `CONTEXT.md` / `docs/adr/0003`）
 - **项目级**控制权判定，对应省公司《产数ICT业务高质量发展专项部署材料》（2026-06-03）**官方 19 角色 / 8 情形矩阵**。与单元级硬转服务（ADR 0002）是「同一根问题——控制权——的两个尺度」，分层互补不冲突
@@ -81,7 +93,7 @@
 - **采集形态**：「信息解析」面板独立段「控制权角色」，按 4 组分区（必选灰底 / 三组二选一虚框），角色 16 由 `hasHardware`（核算单元含设备/施工 或 `hardware_construction==yes`）联动显示
 - **定级（举证式）**：占齐→`eligible/low`（绿正向提示）；缺任一必要元素→`ineligible/high`（红，定性倾向代理人/净额、可举证翻案）；未填但项目奔全额（R21 触发 或 `service_delivery_mode ∈ {all_telecom, mixed}`）→`unfilled_wants_full/medium`（黄）；未填+不奔全额→`unfilled/tip`（灰，留痕不打扰）
 - **防撞**：R09 纯外采触发时**抑制**本检查的 ineligible（避免对纯外采项目重复报无控制权）
-- **融合不替换**：R08 控制权证据核查（C1-C6 → 附件1 六维度官方表述，rules.json v1.7.3）保留为**会计要件视角**；本检查为**流程角色视角**，两套官方框架并立、互补不重复
+- **融合不替换**：R08 控制权证据核查（C1-C6 → 附件1 六维度官方表述）保留为**会计要件视角**；本检查为**流程角色视角**，两套官方框架并立、互补不重复
 - 引擎入口 `assess_control_roles(control_roles, has_hardware, wants_full)`（不进 `rules.json`，组合逻辑现有 DSL 表达不了，沿用计算式模式）；结果键 `control_roles_check`
 
 ### AI 个性化分析
@@ -170,9 +182,9 @@
 |------|------|---------|------|
 | `LoginView.vue` | `/login` | 公开 | 登录（未登录唯一可访问的路由） |
 | `ChangePasswordView.vue` | `/profile/password` | 任何登录用户 | 改密；`must_change_password=true` 时强制跳转 |
-| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 核算单元切分确认 + 提交 |
+| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 核算单元切分确认（含白名单三态）+ 列收模式信息段 + 控制权角色段 + 提交 |
 | `DiagnosesView.vue` | `/diagnoses` | 任何登录用户 | 合并列表，按角色过滤行 |
-| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示（含「已排除列收」「硬转服务嫌疑」板块）+ 人工复核弹窗（PDF 下载用 blob） |
+| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示（含「列收模式判定」「已排除列收」「硬转服务嫌疑」「控制权角色自查」板块）+ 人工复核弹窗（PDF 下载用 blob） |
 | `BpmLookupView.vue` | `/lookup` | 任何登录用户 | 按 BPM 查历史诊断（后端按角色过滤结果） |
 | `TraceabilityView.vue` | `/trace` | 权限内可访问 | 填报溯源 |
 | `AdminLinesView.vue` | `/admin/lines` | admin | 线条 CRUD |
@@ -192,9 +204,9 @@
 
 - pytest 测试位于 `backend/tests/`，配置 `backend/pytest.ini`，依赖 `backend/requirements-dev.txt`（生产 `requirements.txt` 不含 pytest）
 - 跑：`cd backend && pip install -r requirements-dev.txt && pytest`（纯函数、无需 DB/DeepSeek、秒级）
-- 覆盖（60 条）：引擎核心（#8 抑制 / #9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义、**控制权角色矩阵**（`test_engine_control_roles.py` 8 情形/缺必选/缺二选一/涉硬件 16/R09 抑制/wants_full 跨类型/hardware_construction 类型契约/字符串输入按分隔符拆分容错）、**控制权板块渲染**（`test_report_control_roles.py` 4 status / class 白名单 / XSS)、**API 返回契约**（`test_api_diagnose_payload.py` 防 SPA 静默丢键）、**铁律不列收数据层归一**（`test_units_iron_rule.py`：`enforce_hardware_no_listing` 对 AI 草稿漏标硬件单元强制 `listed=False`，三个入库路径契约扫描——否则 #8 抑制静默失效且前端选择器禁用无法手动修复）
+- 覆盖（85 条）：引擎核心（#9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义、**控制权角色矩阵**（`test_engine_control_roles.py`）、**控制权板块渲染**（`test_report_control_roles.py`）、**API 返回契约**（`test_api_diagnose_payload.py` 防 SPA 静默丢键，含 `listing_mode`）、**铁律默认归一**（`test_units_iron_rule.py`：`enforce_hardware_no_listing` 设默认净额）、**列收模式分类器**（`test_engine_listing_mode.py` 四模式/级联/两套占比/准入闸/控制权闸/物权否决/listed 派生）、**列收模式板块渲染**（`test_report_listing_mode.py` 四模式/class 白名单/XSS）、**规则与 listing_mode 对齐**（`test_rules_listing_alignment.py` reframe 触发不变/并立共存/版本上调）、**抑制重写**（`test_engine_diagnosis.py` R24/R25 让位 #9、R26 保留物权风险）
 - 新增规则/字段/「动态值→HTML」路径时，同步补一条断言
-- **类型契约红线**：`ai_chat FIELD_DEFINITIONS` 的 `options` 是各字段的真值类型 source-of-truth。bool 字段（如 `hardware_construction`、`supplier_confirmed`、`is_end_user`）engine/前端必须用 `is True` / `=== true` 比较，不要写 `== "yes"`；字符串字段（如 `has_telecom_capability` 取 `"yes"/"no"/"partial"`）按字段定义的字面值比较
+- **类型契约红线**：`ai_chat FIELD_DEFINITIONS` 的 `options` 是各字段的真值类型 source-of-truth。bool 字段（如 `hardware_construction`、`supplier_confirmed`、`is_end_user`、`is_capital_investment`）engine/前端必须用 `is True` / `=== true` 比较，不要写 `== "yes"`；字符串字段（如 `has_telecom_capability` 取 `"yes"/"no"/"partial"`）按字段定义的字面值比较。核算单元 `whitelisted` 为三态（`true`/`false`/`"unknown"`），引擎只在 `is True` 时认白名单、`unknown` 保守当非白名单
 
 ---
 
