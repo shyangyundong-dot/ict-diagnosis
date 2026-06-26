@@ -99,6 +99,55 @@ FIELD_DEFINITIONS = {
         "options": ["lte_0", "lte_3", "pct_3_4", "pct_4_5", "pct_5_6", "pct_6_10", "gt_10"],
         "options_label": ["≤0%", "1%-3%", "3%-4%", "4%-5%", "5%-6%", "6%-10%", "10%以上"]
     },
+    # ── 27 号文列收模式重构新增（见 docs/adr/0004）──
+    "overall_margin": {
+        "label": "项目整体税前利润率（含硬件，喂列收模式门槛）",
+        "required": False,
+        "applies_to": "all",
+        "options": ["lte_0", "lte_3", "pct_3_4", "pct_4_5", "pct_5_6", "pct_6_10", "gt_10"],
+        "options_label": ["≤0%", "1%-3%", "3%-4%", "4%-5%", "5%-6%", "6%-10%", "10%以上"],
+        "hint": "与服务侧毛利率不同：这是项目整体（含硬件）的税前利润率，按新政「剔除非项目型 ICT 收支（云/小微/基础业务）」口径，填已剔除后的值。只喂列收模式门槛（服务整合≥10%/单一履约≥5%），不喂三零/过手检测。口径不较真，按填报估算。"
+    },
+    "major_integration": {
+        "label": "是否为重大整合（单一组合产出）",
+        "required": False,
+        "applies_to": "all",
+        "options": ["yes", "no", "uncertain"],
+        "options_label": ["是（深度耦合/重大定制/交付单一功能完整系统）", "否（分别提供商品+服务）", "不确定"],
+        "hint": "区分服务整合 vs 单一履约的分水岭：硬件与服务深度耦合、电信做了重大修改/定制、交付的是一个功能完整的单一系统，才算重大整合。AI 只在明确说「深度定制/重大修改/系统级集成」才抽，否则请手动勾选并举证，绝不臆测笼统的「提供了集成服务」。"
+    },
+    "payment_terms": {
+        "label": "前向付款节点",
+        "required": False,
+        "applies_to": "all",
+        "options": ["standard", "other"],
+        "options_label": ["首付款 + 到货验收尾款（全额准入硬条件）", "其他（分期/账期等）"],
+        "hint": "全额列收准入硬条件：前向付款方式须为「首付款 + 到货验收尾款」，按到货验收时点确认收入，确保产权实质性转移。非此方式则不符合全额准入。"
+    },
+    "ownership_transfer": {
+        "label": "硬件产权是否验收后转移客户",
+        "required": False,
+        "applies_to": "all",
+        "options": ["yes", "no", "uncertain"],
+        "options_label": ["是", "否", "不确定/时点未到"],
+        "hint": "全额列收要求验收后硬件所有权转移给客户。软提示：填报时点常未发生，不一票否决，但需举证产权实质性转移。"
+    },
+    "collective_procurement_ratio": {
+        "label": "后向集采比例",
+        "required": False,
+        "applies_to": "all",
+        "options": ["gte_60", "lt_60", "unknown"],
+        "options_label": ["≥60%", "<60%", "不确定"],
+        "hint": "单一履约后向采购建议集采比例 ≥60%（软建议，省采购是否授权市采购待定）。<60% 给黄字提示，不一票否决。"
+    },
+    "is_capital_investment": {
+        "label": "是否为电信自投资设备打包（资本投资模式）",
+        "required": False,
+        "applies_to": "all",
+        "options": [True, False],
+        "options_label": ["是", "否"],
+        "hint": "电信自投资、设备打包进资产、按收投比评估的模式。本工具仅打标识别，收投比 1.2 门槛走线下投资流程、不在此判定。"
+    },
     "revenue_recognition": {
         "label": "收入确认方式",
         "required": True,
@@ -635,10 +684,15 @@ UNIT_SEGMENT_PROMPT = """你是电信 ICT 项目财务核算助手。请把下�
 - gross: 毛利额或毛利率（字符串描述；不确定 null）
 - logistics: 物流是否电信主控，取值：self | supplier_direct | unknown
 - has_self_capability: 是否融入电信自有能力，取值：true | false | unknown
-- listed: 是否应列收，取值：true（列收候选）| false（铁律不列收，如硬件/施工）| uncertain
-- reason: listed 的简短理由
+- whitelisted: 是否属于集团白名单标准化硬件/成品软件（仅设备/标品有意义），取值：true | false | unknown
+- reason: declared_type / whitelisted 的简短理由
 
-规则：硬件/设备、施工 类单元为铁律不列收（listed=false）。宁可把不确定的值填 null，也不要编造。只输出一个 JSON 数组，不要任何解释文字。"""
+规则：
+- declared_type=设备/标品 时才判 whitelisted；施工恒非白名单(false)、服务不适用(填 null)。
+  白名单大类：硬件=计算存储/网络/安全/无线/终端/AI机器人/机房配套/低空经济；软件=基础/通用/行业/安全软件（成品授权）。
+  室分/综合布线/弱电/LED屏/机房装修=施工本质，whitelisted=false。拿不准填 "unknown"（系统保守按非白名单处理）。
+- 不要输出 listed 字段——是否列收由系统按 27 号文列收模式（控制权+门槛+白名单）算出，不是你判定的。
+宁可把不确定的值填 null，也不要编造。只输出一个 JSON 数组，不要任何解释文字。"""
 
 
 async def segment_accounting_units(messages: list[dict]) -> list[dict]:

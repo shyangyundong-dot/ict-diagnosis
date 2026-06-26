@@ -1,0 +1,30 @@
+{
+  "version": "v1.0.0",
+  "source": "中国电信办政企〔2026〕27号《关于ICT业务收入口径相关工作的通知》集团白名单（省侧宣贯 2026-06-22，第14-21页）",
+  "note": "可全额列收的标准化硬件设备/成品软件目录。大类粒度（型号级不可维护）。是「全额资格」的入参/门票（进占比、进准入），不是逐元抠分依据。目录宽进——诊断价值在抓落在白名单外的例外。施工本质项（室分/弱电/综合布线/LED屏/机房装修）恒非白名单。",
+  "hardware_categories": [
+    {"key": "compute_storage", "label": "计算与存储", "examples": "服务器、存储阵列、超融合一体机、AI 训练/推理服务器"},
+    {"key": "network", "label": "网络设备", "examples": "交换机、路由器、负载均衡、SD-WAN 设备"},
+    {"key": "security", "label": "安全设备", "examples": "防火墙、IPS/IDS、上网行为管理、堡垒机、加密机"},
+    {"key": "wireless", "label": "无线设备", "examples": "AP、AC、基站侧标准化无线设备"},
+    {"key": "terminal", "label": "终端设备", "examples": "PC、瘦终端、摄像头、采集终端、标准化物联终端"},
+    {"key": "ai_robot", "label": "AI 与机器人", "examples": "AI 一体机、智能机器人、标准化算法盒子"},
+    {"key": "datacenter_facility", "label": "机房配套", "examples": "标准化机柜、精密空调、UPS、动环监控（成品设备，非装修施工）"},
+    {"key": "low_altitude", "label": "低空经济", "examples": "无人机、低空标准化设备"}
+  ],
+  "software_categories": [
+    {"key": "basic_software", "label": "基础软件", "examples": "操作系统、数据库、中间件（成品授权）"},
+    {"key": "general_software", "label": "通用软件", "examples": "办公套件、通用管理软件（成品授权）"},
+    {"key": "industry_software", "label": "行业软件", "examples": "行业标准化成品软件（成品授权，非定制开发）"},
+    {"key": "security_software", "label": "安全软件", "examples": "杀毒、终端管控、安全审计（成品授权）"}
+  ],
+  "excluded_examples": [
+    {"label": "室内分布/室分", "reason": "施工本质，不进白名单全额"},
+    {"label": "综合布线/弱电", "reason": "施工本质，不进白名单全额"},
+    {"label": "三线（电力/通信/广电线路）施工", "reason": "施工本质"},
+    {"label": "LED 屏/拼接大屏（含安装）", "reason": "含安装施工、非标准化成品"},
+    {"label": "机房装修/动力环境改造", "reason": "装修施工，非成品配套设备"},
+    {"label": "非标定制件/专用工装", "reason": "非标准化，不在大类成品目录内"},
+    {"label": "算力设备（按资本投资全额）", "reason": "走资本投资全额、本期暂不开单一履约（ADR 0004 决策12）"}
+  ]
+}

@@ -16,8 +16,8 @@ REQUIRED_KEYS_IN_GET_DIAGNOSIS = {
     "rule_version", "created_at", "segments", "ai_enriched",
     "is_mixed_project",
     "accounting_units", "suppressed_rules", "hard_to_service",
-    # 下方两个是 ADR 0002/0003 关键板块，曾因漏传导致 SPA 报告静默缺失
-    "unit_warning", "control_roles_check",
+    # 下方三个是 ADR 0002/0003/0004 关键板块，曾因漏传导致 SPA 报告静默缺失
+    "unit_warning", "control_roles_check", "listing_mode",
 }
 
 
@@ -38,5 +38,5 @@ def test_confirm_returns_all_report_keys():
     """/api/confirm 返回体（confirm_and_diagnose）同样应覆盖关键键，便于客户端直接用而非二次拉。"""
     src = _source_of(router_mod.confirm_and_diagnose)
     # confirm 必须至少含 ADR 0002/0003 的两个关键板块
-    for k in ("unit_warning", "control_roles_check", "accounting_units", "hard_to_service"):
+    for k in ("unit_warning", "control_roles_check", "listing_mode", "accounting_units", "hard_to_service"):
         assert f'"{k}"' in src, f"/api/confirm 返回体遗漏 {k}"

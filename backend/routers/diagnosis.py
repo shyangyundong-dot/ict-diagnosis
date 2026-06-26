@@ -377,6 +377,7 @@ async def confirm_and_diagnose(
         "hard_to_service": result.get("hard_to_service", []),
         "unit_warning": result.get("unit_warning"),
         "control_roles_check": result.get("control_roles_check"),
+        "listing_mode": result.get("listing_mode"),
     }
 
 
@@ -603,10 +604,12 @@ async def get_diagnosis(
         "accounting_units": result.get("accounting_units", []),
         "suppressed_rules": result.get("suppressed_rules", []),
         "hard_to_service": result.get("hard_to_service", []),
-        # 以下两键之前漏传给 SPA，导致 /report/:id 静默丢失「核算单元未切分黄条」(ADR 0002)
-        # 与「控制权角色自查」板块 (ADR 0003)——HTML/PDF 直链报告不受影响（generate_report_html 直接读 result）
+        # 以下三键之前漏传给 SPA，导致 /report/:id 静默丢失「核算单元未切分黄条」(ADR 0002)、
+        # 「控制权角色自查」板块 (ADR 0003) 与「列收模式判定」板块 (ADR 0004)——
+        # HTML/PDF 直链报告不受影响（generate_report_html 直接读 result）
         "unit_warning": result.get("unit_warning"),
         "control_roles_check": result.get("control_roles_check"),
+        "listing_mode": result.get("listing_mode"),
     }
 
 

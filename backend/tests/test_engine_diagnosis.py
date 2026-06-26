@@ -39,25 +39,26 @@ def test_result_has_expected_keys():
         assert key in result, f"结果缺少键 {key}"
 
 
-def test_hardware_unit_suppresses_listing_rules():
-    """#8：设备单元归类不列收时，列收违规规则 R24/R25/R26 应被抑制而非误报。"""
+def test_misdeclaration_rules_suppressed_logistics_rule_kept():
+    """27 号文重构（ADR 0004 决策13）：切分核算单元时——
+    R24/R25「硬件/施工包装为服务」(误申报轴) 让位单元级硬转服务(#9)、被抑制；
+    R26「设备物流非主控」(物权轴) 升格为全额否决闸、保留为真实风险，不再抑制。"""
     fields = {
         "project_type": ["equipment_sales"],
-        # 构造会触发列收违规的扁平字段（具体取值无需精确，重点看抑制行为）
-        "logistics_control": "supplier_direct",
+        "logistics_control": "supplier_direct",  # 触发 R26
         "revenue_recognition": "point_in_time",
     }
     units = [
         {"name": "设备采购", "declared_type": "设备", "amount": 1_000_000,
-         "listed": False, "gross": None, "logistics": "supplier_direct",
-         "has_self_capability": "unknown"},
+         "gross": None, "logistics": "supplier_direct", "has_self_capability": "unknown"},
     ]
     result = run_diagnosis(["equipment_sales"], fields, accounting_units=units)
     triggered_ids = _ids(result["triggered_rules"])
-    listing_rules = {"R24", "R25", "R26"}
-    # 被抑制的列收规则不应出现在触发列表里
-    assert not (triggered_ids & listing_rules), \
-        f"硬件不列收时仍误触发列收规则：{triggered_ids & listing_rules}"
+    suppressed_ids = _ids(result["suppressed_rules"])
+    # 误申报轴 R24/R25 被抑制
+    assert "R24" not in triggered_ids and "R25" not in triggered_ids
+    # 物权轴 R26 不再被抑制（若其 trigger 条件命中，应出现在触发或保持可见，不进 suppressed）
+    assert "R26" not in suppressed_ids
 
 
 def test_hard_to_service_detection_three_signals():

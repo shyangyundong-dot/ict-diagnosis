@@ -461,6 +461,90 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             f"</div>"
         )
 
+    # 列收模式分类（27 号文重构，见 docs/adr/0004）——级联分类 + 占比 + 资格闸 + 单元列收派生
+    listing = result.get("listing_mode") or {}
+    listing_section_html = ""
+    _lm_mode = listing.get("mode")
+    if _lm_mode and _lm_mode != "regular":
+        # mode 拼进 class 属性，白名单防注入
+        _safe_mode = _lm_mode if _lm_mode in (
+            "capital", "service_integration", "single_fulfillment", "net_settlement"
+        ) else "net_settlement"
+        _full = listing.get("full_listing")
+        _mode_badge = {
+            "capital": "🏗️ 资本投资模式（疑似·线下评估）",
+            "service_integration": "✅ 服务整合·全额列收" if _full else "服务整合（项目级未过·退单元兜底）",
+            "single_fulfillment": "✅ 单一履约·白名单全额（达标单元）",
+            "net_settlement": "净额（代收代付）兜底",
+        }.get(_lm_mode, _esc(str(listing.get("mode_label", ""))))
+
+        # 占比
+        ratios = listing.get("ratios") or {}
+        ratio_rows = ""
+        _si = ratios.get("service_integration_pct")
+        _sf = ratios.get("single_fulfillment_pct")
+        if _si is not None:
+            ratio_rows += f'<div class="lm-ratio">硬件+集成施工占比（服务整合 ≤60%）：<strong>{_esc(f"{_si:.1%}")}</strong></div>'
+        if _sf is not None:
+            ratio_rows += f'<div class="lm-ratio">软硬件占比（单一履约 ≤80%，施工已排除）：<strong>{_esc(f"{_sf:.1%}")}</strong></div>'
+
+        # 资格闸
+        gates = listing.get("gates") or []
+        gate_rows = "".join(
+            f'<div class="lm-gate">{"✅" if g.get("ok") else "❌"} {_esc(str(g.get("name", "")))}'
+            + (f' <span class="lm-gate-val">（{_esc(str(g.get("value")))}）</span>' if g.get("value") is not None else "")
+            + "</div>"
+            for g in gates
+        )
+
+        # 单元列收派生明细
+        unit_decisions = listing.get("unit_decisions") or []
+        ud_rows = ""
+        for d in unit_decisions:
+            _full_unit = d.get("listed") is True
+            _wl = d.get("whitelisted")
+            _wl_txt = {True: "白名单", False: "非白名单", "unknown": "白名单存疑"}.get(_wl, "—")
+            amt = d.get("amount")
+            amt_txt = f"{amt:,} 元" if isinstance(amt, (int, float)) else (f"{amt} 元" if amt else "金额未填")
+            ud_rows += (
+                f'<div class="lm-unit lm-unit-{"full" if _full_unit else "net"}">'
+                f'<span class="lm-unit-name">{_esc(str(d.get("unit_name", "")))}</span>'
+                f'<span class="lm-unit-meta">{_esc(str(d.get("declared_type") or "?"))} · {_esc(amt_txt)} · {_esc(_wl_txt)}</span>'
+                f'<span class="lm-unit-tag">{"全额列收" if _full_unit else "净额"}</span>'
+                f"</div>"
+            )
+
+        # 硬否决 / 软提示
+        blockers = listing.get("blockers") or []
+        softs = listing.get("softs") or []
+        blocker_html = ""
+        if blockers:
+            blocker_html = (
+                '<div class="lm-blockers"><div class="lm-sub-title">⛔ 全额资格硬否决（落净额，可举证翻案）：</div><ul>'
+                + "".join(f"<li>{_esc(str(b))}</li>" for b in blockers) + "</ul></div>"
+            )
+        soft_html = ""
+        if softs:
+            soft_html = (
+                '<div class="lm-softs"><div class="lm-sub-title">🟡 需举证/补正（不一票否决）：</div><ul>'
+                + "".join(f"<li>{_esc(str(s))}</li>" for s in softs) + "</ul></div>"
+            )
+
+        listing_section_html = (
+            f'<div class="section-heading">列收模式判定 '
+            f'<span class="heading-sub">（27 号文，工具止于分类+举证，不下财税科目）</span></div>'
+            f'<div class="lm-card lm-{_safe_mode}">'
+            f'<div class="lm-head"><span class="lm-badge">{_esc(_mode_badge)}</span></div>'
+            f'<div class="lm-basis">{_esc(str(listing.get("basis", "")))}</div>'
+            + (f'<div class="lm-ratios">{ratio_rows}</div>' if ratio_rows else "")
+            + (f'<div class="lm-gates">{gate_rows}</div>' if gate_rows else "")
+            + (f'<div class="lm-units">{ud_rows}</div>' if ud_rows else "")
+            + blocker_html + soft_html
+            + '<div class="lm-foot">占比按填报口径与时点法（同一履约时间的非周期性收入）估算；'
+            + '若含运维年费/订阅等周期性收入，请人工剔除后复核。</div>'
+            + "</div>"
+        )
+
     seg_note = " · 已按业务板块分节分析" if segments else ""
     overall_summary_line = (
         f'共触发 <strong>{len(triggered)}</strong> 条风险规则 · <strong>{len(tips)}</strong> 条操作提示{seg_note}'
@@ -649,6 +733,37 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .hts-msg {{ font-size: 13px; color: #475569; line-height: 1.7; margin-bottom: 10px; }}
 
   /* 控制权角色自查（总额法资格，见 docs/adr/0003）—— 4 种 status 各自配色 */
+  /* 列收模式判定（27 号文，docs/adr/0004）*/
+  .lm-card {{
+    border: 1px solid #e5e7eb; border-left: 4px solid #9ca3af;
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; background: #f9fafb;
+  }}
+  .lm-service_integration, .lm-single_fulfillment {{
+    border-color: #bbf7d0; border-left-color: #16a34a; background: #f0fdf4;
+  }}
+  .lm-net_settlement {{ border-color: #e5e7eb; border-left-color: #6b7280; background: #f9fafb; }}
+  .lm-capital {{ border-color: #bfdbfe; border-left-color: #2563eb; background: #eff6ff; }}
+  .lm-badge {{ font-size: 13px; font-weight: 700; }}
+  .lm-basis {{ font-size: 12px; color: #4b5563; margin: 6px 0 10px; }}
+  .lm-ratio {{ font-size: 12px; color: #374151; margin: 2px 0; }}
+  .lm-gate {{ font-size: 12px; color: #374151; margin: 2px 0; }}
+  .lm-gate-val {{ color: #6b7280; }}
+  .lm-units {{ margin-top: 8px; }}
+  .lm-unit {{
+    display: flex; gap: 8px; align-items: center; justify-content: space-between;
+    font-size: 12px; padding: 5px 8px; border-radius: 6px; margin: 3px 0; background: #fff;
+    border: 1px solid #eee;
+  }}
+  .lm-unit-name {{ font-weight: 600; }}
+  .lm-unit-meta {{ color: #6b7280; flex: 1; text-align: right; }}
+  .lm-unit-tag {{ font-weight: 700; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }}
+  .lm-unit-full .lm-unit-tag {{ color: #166534; background: #dcfce7; }}
+  .lm-unit-net .lm-unit-tag {{ color: #374151; background: #e5e7eb; }}
+  .lm-sub-title {{ font-size: 12px; font-weight: 700; margin: 8px 0 4px; }}
+  .lm-blockers {{ color: #b91c1c; }}
+  .lm-blockers ul, .lm-softs ul {{ margin: 0 0 0 18px; font-size: 12px; }}
+  .lm-softs {{ color: #92400e; }}
+  .lm-foot {{ font-size: 11px; color: #9ca3af; margin-top: 10px; border-top: 1px dashed #e5e7eb; padding-top: 6px; }}
   .ctrl-card {{
     border: 1px solid #e5e7eb;
     border-left: 4px solid #9ca3af;
@@ -1029,6 +1144,9 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
 
   <!-- 核算单元缺失软警告（退化模式提示）-->
   {unit_warning_html}
+
+  <!-- 列收模式判定（27 号文重构，见 docs/adr/0004）-->
+  {listing_section_html}
 
   <!-- 核算单元 · 已排除列收（#8）-->
   {units_section_html}

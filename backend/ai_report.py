@@ -55,6 +55,26 @@ FIELD_VALUE_LABELS = {
         "pct_6_10": "6%-10%",
         "gt_10": "10%以上",
     },
+    "overall_margin": {
+        "lte_0": "≤0%",
+        "lte_3": "1%-3%",
+        "pct_3_4": "3%-4%",
+        "pct_4_5": "4%-5%",
+        "pct_5_6": "5%-6%",
+        "pct_6_10": "6%-10%",
+        "gt_10": "10%以上",
+    },
+    "major_integration": {
+        "yes": "是（深度耦合/重大定制/交付单一功能完整系统）",
+        "no": "否（分别提供商品+服务）",
+        "uncertain": "不确定",
+    },
+    "payment_terms": {
+        "standard": "首付款 + 到货验收尾款",
+        "other": "其他（分期/账期等）",
+    },
+    "ownership_transfer": {"yes": "是", "no": "否", "uncertain": "不确定/时点未到"},
+    "collective_procurement_ratio": {"gte_60": "≥60%", "lt_60": "<60%", "unknown": "不确定"},
     "revenue_recognition": {
         "point_in_time": "时点法（一次性交付）",
         "over_time": "时段法（周期性服务）",
@@ -148,6 +168,12 @@ FIELD_LABELS = {
     "has_advance_funding": "是否存在电信垫资",
     "related_party_checked": "三方关联关系是否已核查",
     "control_roles": "控制权关键角色（总额法资格自查）",
+    "overall_margin": "项目整体税前利润率（含硬件）",
+    "major_integration": "是否为重大整合（单一组合产出）",
+    "payment_terms": "前向付款节点",
+    "ownership_transfer": "硬件产权是否验收后转移客户",
+    "collective_procurement_ratio": "后向集采比例",
+    "is_capital_investment": "是否为电信自投资设备打包（资本投资模式）",
 }
 
 
