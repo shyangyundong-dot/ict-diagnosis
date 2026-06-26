@@ -124,6 +124,43 @@
         <span class="uw-text">{{ unitWarning.message }}</span>
       </div>
 
+      <!-- 列收模式判定（27 号文重构，见 docs/adr/0004）-->
+      <template v-if="listingMode && listingMode.mode && listingMode.mode !== 'regular'">
+        <div class="section-heading">列收模式判定
+          <span class="heading-sub">（27 号文，工具止于分类+举证，不下财税科目）</span>
+        </div>
+        <div class="lm-card" :class="`lm-${lmModeClass}`">
+          <div class="lm-head"><span class="lm-badge">{{ lmBadge }}</span></div>
+          <div class="lm-basis">{{ listingMode.basis }}</div>
+          <div v-if="lmRatios.length" class="lm-ratios">
+            <div v-for="(r, i) in lmRatios" :key="i" class="lm-ratio">{{ r }}</div>
+          </div>
+          <div v-if="listingMode.gates && listingMode.gates.length" class="lm-gates">
+            <div v-for="(g, i) in listingMode.gates" :key="i" class="lm-gate">
+              {{ g.ok ? '✅' : '❌' }} {{ g.name }}
+              <span v-if="g.value != null" class="lm-gate-val">（{{ g.value }}）</span>
+            </div>
+          </div>
+          <div v-if="listingMode.unit_decisions && listingMode.unit_decisions.length" class="lm-units">
+            <div v-for="(d, i) in listingMode.unit_decisions" :key="i"
+                 class="lm-unit" :class="d.listed === true ? 'lm-unit-full' : 'lm-unit-net'">
+              <span class="lm-unit-name">{{ d.unit_name }}</span>
+              <span class="lm-unit-meta">{{ d.declared_type || '?' }} · {{ formatUnitAmount(d.amount) }} · {{ wlLabel(d.whitelisted) }}</span>
+              <span class="lm-unit-tag">{{ d.listed === true ? '全额列收' : '净额' }}</span>
+            </div>
+          </div>
+          <div v-if="listingMode.blockers && listingMode.blockers.length" class="lm-blockers">
+            <div class="lm-sub-title">⛔ 全额资格硬否决（落净额，可举证翻案）：</div>
+            <ul><li v-for="(b, i) in listingMode.blockers" :key="i">{{ b }}</li></ul>
+          </div>
+          <div v-if="listingMode.softs && listingMode.softs.length" class="lm-softs">
+            <div class="lm-sub-title">🟡 需举证/补正（不一票否决）：</div>
+            <ul><li v-for="(s, i) in listingMode.softs" :key="i">{{ s }}</li></ul>
+          </div>
+          <div class="lm-foot">占比按填报口径与时点法（同一履约时间的非周期性收入）估算；若含运维年费/订阅等周期性收入，请人工剔除后复核。</div>
+        </div>
+      </template>
+
       <!-- 核算单元 · 已排除列收（#8）-->
       <template v-if="excludedUnits.length">
         <div class="section-heading">核算单元 · 已排除列收</div>
@@ -520,6 +557,36 @@ const ctrlBadge = computed(() => ({
   unfilled: 'ⓘ 未参与判定',
 }[controlRolesCheck.value?.status] || 'ⓘ'))
 
+// 列收模式判定（27 号文重构，见 docs/adr/0004）
+const listingMode = computed(() => data.value.listing_mode || null)
+const _LM_MODE_WHITELIST = ['capital', 'service_integration', 'single_fulfillment', 'net_settlement']
+const lmModeClass = computed(() => {
+  const m = listingMode.value?.mode
+  return _LM_MODE_WHITELIST.includes(m) ? m : 'net_settlement'
+})
+const lmBadge = computed(() => {
+  const lm = listingMode.value
+  if (!lm) return ''
+  if (lm.mode === 'capital') return '🏗️ 资本投资模式（疑似·线下评估）'
+  if (lm.mode === 'service_integration') return lm.full_listing ? '✅ 服务整合·全额列收' : '服务整合（项目级未过·退单元兜底）'
+  if (lm.mode === 'single_fulfillment') return '✅ 单一履约·白名单全额（达标单元）'
+  if (lm.mode === 'net_settlement') return '净额（代收代付）兜底'
+  return lm.mode_label || ''
+})
+const lmRatios = computed(() => {
+  const r = listingMode.value?.ratios || {}
+  const out = []
+  if (r.service_integration_pct != null) out.push(`硬件+集成施工占比（服务整合 ≤60%）：${(r.service_integration_pct * 100).toFixed(1)}%`)
+  if (r.single_fulfillment_pct != null) out.push(`软硬件占比（单一履约 ≤80%，施工已排除）：${(r.single_fulfillment_pct * 100).toFixed(1)}%`)
+  return out
+})
+function wlLabel(v) {
+  if (v === true) return '白名单'
+  if (v === false) return '非白名单'
+  if (v === 'unknown') return '白名单存疑'
+  return '—'
+}
+
 // 计算总风险条数（支持segments和平铺两种数据结构）
 const totalTriggered = computed(() => {
   if (data.value.segments) {
@@ -915,6 +982,35 @@ onMounted(async () => {
 .hts-evidence-item { font-size: 12px; color: var(--slate-600); padding: 2px 0; }
 
 /* ── 控制权角色自查（总额法资格，见 docs/adr/0003）── */
+/* 列收模式判定（27 号文，docs/adr/0004）*/
+.lm-card {
+  border: 1px solid #e5e7eb; border-left: 4px solid #9ca3af;
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; background: #f9fafb;
+}
+.lm-card.lm-service_integration, .lm-card.lm-single_fulfillment {
+  border-color: #bbf7d0; border-left-color: #16a34a; background: #f0fdf4;
+}
+.lm-card.lm-net_settlement { border-color: #e5e7eb; border-left-color: #6b7280; background: #f9fafb; }
+.lm-card.lm-capital { border-color: #bfdbfe; border-left-color: #2563eb; background: #eff6ff; }
+.lm-badge { font-size: 14px; font-weight: 700; }
+.lm-basis { font-size: 12px; color: #4b5563; margin: 6px 0 10px; line-height: 1.6; }
+.lm-ratio, .lm-gate { font-size: 12px; color: #374151; margin: 2px 0; }
+.lm-gate-val { color: #6b7280; }
+.lm-units { margin-top: 8px; }
+.lm-unit {
+  display: flex; gap: 8px; align-items: center; justify-content: space-between;
+  font-size: 12px; padding: 5px 8px; border-radius: 6px; margin: 3px 0; background: #fff; border: 1px solid #eee;
+}
+.lm-unit-name { font-weight: 600; }
+.lm-unit-meta { color: #6b7280; flex: 1; text-align: right; }
+.lm-unit-tag { font-weight: 700; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+.lm-unit-full .lm-unit-tag { color: #166534; background: #dcfce7; }
+.lm-unit-net .lm-unit-tag { color: #374151; background: #e5e7eb; }
+.lm-sub-title { font-size: 12px; font-weight: 700; margin: 8px 0 4px; }
+.lm-blockers { color: #b91c1c; }
+.lm-blockers ul, .lm-softs ul { margin: 0 0 0 18px; font-size: 12px; }
+.lm-softs { color: #92400e; }
+.lm-foot { font-size: 11px; color: #9ca3af; margin-top: 10px; border-top: 1px dashed #e5e7eb; padding-top: 6px; line-height: 1.5; }
 .ctrl-card {
   border: 1px solid #e5e7eb;
   border-left: 4px solid #9ca3af;

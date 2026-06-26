@@ -184,6 +184,17 @@
                     </select>
                   </label>
                 </div>
+                <!-- 集团白名单（27 号文，见 docs/adr/0004）：仅设备/标品有意义，是全额资格门票 -->
+                <div v-if="u.declared_type === '设备' || u.declared_type === '标品'" class="unit-row-fields unit-row-whitelist">
+                  <label>集团白名单
+                    <select v-model="u.whitelisted" @change="persistUnits">
+                      <option :value="true">是（标准化成品）</option>
+                      <option :value="false">否（施工本质/非标）</option>
+                      <option value="unknown">不确定</option>
+                    </select>
+                  </label>
+                  <span class="unit-wl-hint">白名单是全额列收的门票；不确定按非白名单从严，确认后或可改善。</span>
+                </div>
                 <!-- 硬转服务举证字段：仅服务单元相关（引擎据 gross/logistics/has_self_capability 判嫌疑） -->
                 <div v-if="u.declared_type === '服务'" class="unit-row-fields unit-row-evidence">
                   <label>毛利
@@ -232,6 +243,28 @@
                 <span class="ctrl-role-id">{{ r.id }}</span>
                 <span class="ctrl-role-name">{{ r.name }}</span>
               </label>
+            </div>
+          </section>
+
+          <!-- 列收模式信息（27 号文，全额资格判定输入，见 docs/adr/0004）-->
+          <section class="fields-section listing-fields-section">
+            <div class="section-head">
+              <span class="section-head-title">列收模式信息</span>
+              <span class="section-head-meta listing-fields-meta">27 号文 · 全额资格</span>
+            </div>
+            <div class="listing-fields-hint">
+              <p>判定项目按<strong>全额还是净额</strong>列收的关键输入。多为售中/财务信息，对话常缺，需手动确认。</p>
+            </div>
+            <div class="listing-fields-list">
+              <div v-for="key in LISTING_FIELDS" :key="key" class="listing-field-row">
+                <div class="listing-field-label">{{ getFieldLabel(key) }}</div>
+                <FieldControl
+                  :field-key="key"
+                  :model-value="currentFields[key]"
+                  :definitions="fieldDefinitions"
+                  @update:model-value="(v) => onFieldUpdate(key, v)"
+                />
+              </div>
             </div>
           </section>
 
@@ -417,7 +450,7 @@ function addUnit() {
   accountingUnits.value.push({
     name: '', declared_type: '服务', amount: null, tax_rate: null,
     gross: null, logistics: 'unknown', has_self_capability: 'unknown',
-    listed: 'uncertain', reason: '',
+    whitelisted: 'unknown', listed: 'uncertain', reason: '',
   })
   persistUnits()
 }
@@ -438,8 +471,14 @@ async function persistUnits() {
   }
 }
 
+// 列收模式信息独立段管的字段（27 号文，见 docs/adr/0004）——全额资格判定输入
+const LISTING_FIELDS = [
+  'major_integration', 'overall_margin', 'payment_terms',
+  'ownership_transfer', 'collective_procurement_ratio', 'is_capital_investment',
+]
+
 // 独立段已经管的字段，不在「已解析」/「待补充」段重复渲染
-const DEDICATED_FIELDS = new Set(['control_roles'])
+const DEDICATED_FIELDS = new Set(['control_roles', ...LISTING_FIELDS])
 
 const parsedFieldKeys = computed(() => {
   const missing = new Set(missingFields.value)
@@ -1093,6 +1132,13 @@ function resetChat() {
 }
 .unit-row-fields select:disabled { background: var(--slate-50); color: var(--slate-400); }
 .unit-row-evidence { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--slate-200); }
+.unit-row-whitelist { margin-top: 6px; align-items: flex-end; }
+.unit-wl-hint { flex: 2; font-size: 10px; color: var(--slate-400); line-height: 1.4; }
+.listing-fields-meta { font-size: 11px; color: var(--blue-600, #2563eb); }
+.listing-fields-hint { font-size: 12px; color: var(--slate-500); line-height: 1.55; margin: 4px 0 8px; }
+.listing-fields-hint p { margin: 0; }
+.listing-fields-list { display: flex; flex-direction: column; gap: 10px; }
+.listing-field-label { font-size: 12px; color: var(--slate-600, #475569); margin-bottom: 3px; }
 .unit-reason { font-size: 11px; color: var(--slate-500); margin-top: 6px; line-height: 1.5; }
 .units-save-error { margin-top: 8px; font-size: 12px; color: var(--red-600, #dc2626); }
 .units-add-btn {
