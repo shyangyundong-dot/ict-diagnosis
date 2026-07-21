@@ -33,7 +33,7 @@ FIELD_DEFINITIONS = {
         "hint": "系统集成/软件开发/设备销售/服务类/其他"
     },
     "control_roles": {
-        "label": "控制权关键角色（电信占据哪些）",
+        "label": "六到位关键角色（电信占据哪些）",
         "required": False,
         "applies_to": "all",
         "multi": True,
@@ -46,7 +46,74 @@ FIELD_DEFINITIONS = {
             "13 项目实施/技术开发/联调实施者", "14 项目实施/技术开发主导与联调实操责任者",
             "16 到货验收及设备管理者（涉硬件）",
         ],
-        "hint": "总额法资格自查（见 docs/adr/0003）：勾选电信在本项目实际占据的关键主导/决策/责任角色（非配合）。判定=必选6/7/9（涉硬件加16）+ 方案{3|4}/交付实施{10|11}/实施开发{13|14}各占一个。多为售中/执行信息，对话常缺，通常需手动确认。",
+        "hint": "六到位自查（见 docs/adr/0003）：勾选电信在本项目实际占据的关键主导/决策/责任角色（非配合）。判定=必选6/7/9（涉硬件加16）+ 方案{3|4}/交付实施{10|11}/实施开发{13|14}各占一个。多为售中/执行信息，对话常缺，通常需手动确认。",
+    },
+    "six_daowei_facts_confirmed": {
+        "label": "六到位基础事实已核对",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": [True],
+        "options_label": ["已核对交付模式与关键角色"],
+        "hint": "即使未勾选任何关键角色，也必须明确确认已经核对过；角色、交付模式或项目适用范围变化后需重新确认。",
+    },
+    # 六到位逐项结论由系统根据既有事实给建议、用户在右侧逐项确认；AI 不直接填写。
+    "six_daowei_customer_insight": {
+        "label": "客情掌握到位",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["in_place", "not_in_place", "pending_evidence"],
+        "options_label": ["到位", "不到位", "待补证据"],
+    },
+    "six_daowei_solution_control": {
+        "label": "方案总控到位",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["in_place", "not_in_place", "pending_evidence"],
+        "options_label": ["到位", "不到位", "待补证据"],
+    },
+    "six_daowei_bid_autonomy": {
+        "label": "谈判/应标自主到位",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["in_place", "not_in_place", "pending_evidence"],
+        "options_label": ["到位", "不到位", "待补证据"],
+    },
+    "six_daowei_procurement_autonomy": {
+        "label": "采购自主到位",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["in_place", "not_in_place", "pending_evidence", "not_applicable"],
+        "options_label": ["到位", "不到位", "待补证据", "不适用（无外部采购）"],
+    },
+    "six_daowei_project_management": {
+        "label": "项目强管理到位",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["in_place", "not_in_place", "pending_evidence"],
+        "options_label": ["到位", "不到位", "待补证据"],
+    },
+    "six_daowei_operations_autonomy": {
+        "label": "运维自主到位",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["in_place", "not_in_place", "pending_evidence", "not_applicable"],
+        "options_label": ["到位", "不到位", "待补证据", "不适用（无运维/售后义务）"],
+    },
+    "six_daowei_level": {
+        "label": "六到位综合结论",
+        "required": False,
+        "applies_to": "all",
+        "manual_confirmation": True,
+        "options": ["strong", "medium", "none"],
+        "options_label": ["强", "中", "无"],
+        "hint": "系统根据六维确认、关键角色和服务交付事实给出建议；最终以本项人工确认为准。只有基础事实已核对、六维全部到位、关键角色齐备且最终确认为强，才通过全额列收前置闸门；中或无均只能净额。通过后仍需继续判断 R08 及其他全额条件。",
     },
     "customer_type": {
         "label": "前向客户类型",
@@ -258,19 +325,20 @@ FIELD_DEFINITIONS = {
         "applies_to": ["service"],
         "options": ["all_telecom", "mixed", "all_external"],
         "options_label": ["全部自有团队", "混合（自有+外包）", "全部外包/供应商执行"],
-        "hint": "判断电信在交付中的实际角色——影响主要责任人/代理人认定；「六必要」能力等级由系统依据本项自动推导"
+        "hint": "六到位服务场景证据：记录电信自有团队与外包团队的实际交付关系，供 R31/R32/R34 与关键角色证据共同判断"
     },
-    # 系统依据 service_delivery_mode 推导入库；展示层需 label/options 以便前端与溯源页显示中文
+    # 历史兼容字段：2026-07-18 起不再按交付模式自动生成，新诊断不展示。
     "service_capability_level": {
-        "label": "电信自有服务能力等级（六必要，系统依据交付模式推导）",
+        "label": "六到位服务能力等级（历史自动推导）",
         "required": False,
         "applies_to": ["service"],
+        "deprecated": True,
         "options": ["strong", "medium", "weak", "none"],
         "options_label": [
             "强（N1-N6全部具备，有充分留痕）",
             "中（N1-N6部分具备，部分需补充）",
             "弱（仅具备1-3项，难以全额列收）",
-            "无（无法举证任何六必要能力）",
+            "无（无法举证任何六到位能力）",
         ],
     },
 }
@@ -313,33 +381,27 @@ def normalize_project_type_field(fields: dict) -> None:
 
 
 def strip_deprecated_input_fields(fields: dict) -> None:
-    """已下线手填项：与 supplier_confirmed 语义重复、或改由系统推导。"""
+    """移除已下线或只供历史记录读取的字段。"""
     fields.pop("supplier_confirmed_early", None)
     fields.pop("service_capability_level", None)
-
-
-_SERVICE_CAPABILITY_BY_DELIVERY = {
-    "all_telecom": "strong",
-    "mixed": "medium",
-    "all_external": "none",
-}
+    fields.pop("major_integration", None)
+    for key in (
+        "six_daowei_facts_confirmed",
+        "six_daowei_customer_insight",
+        "six_daowei_solution_control",
+        "six_daowei_bid_autonomy",
+        "six_daowei_procurement_autonomy",
+        "six_daowei_project_management",
+        "six_daowei_operations_autonomy",
+        "six_daowei_level",
+    ):
+        fields.pop(key, None)
 
 
 def apply_derived_fields_for_diagnosis(fields: dict) -> None:
-    """
-    提交诊断入库前：写入系统推导字段。
-    六必要等级仅依据服务交付模式（与规则 R31/R32/R34 所依据维度一致），不再手填。
-    """
+    """提交诊断入库前执行兼容迁移，并清除已停用的派生等级。"""
     migrate_legacy_service_fields(fields)
-    fields.pop("supplier_confirmed_early", None)
-    types = project_types_from_fields(fields) or []
-    if "service" in types:
-        mode = fields.get("service_delivery_mode")
-        derived = _SERVICE_CAPABILITY_BY_DELIVERY.get(mode)
-        if derived is not None:
-            fields["service_capability_level"] = derived
-    else:
-        fields.pop("service_capability_level", None)
+    strip_deprecated_input_fields(fields)
 
 
 def migrate_legacy_service_fields(fields: dict) -> None:
@@ -377,6 +439,10 @@ def get_missing_fields(fields: dict) -> list[str]:
             continue
         if key == "project_type":
             if not types:
+                missing.append(key)
+            continue
+        if key == "six_daowei_facts_confirmed":
+            if val is not True:
                 missing.append(key)
             continue
         if val is None:
@@ -521,7 +587,7 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 - forward_bidding_type: 前向客户对电信的采购方式（不要与 procurement_method 混淆）。"public_bid"（公开招标）| "negotiation"（谈判/议标）| "other"（其他）
 - contract_matches_bpm: 前向合同客户与BPM商机客户是否一致。"yes"（一致或计划保持一致）| "no"（不一致）| "uncertain"（不确定/尚未签订）
 - related_party: "yes" | "no" | "uncertain"
-- gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_3_4"（3-4%）| "pct_4_5"（4-5%）| "pct_5_6"（5-6%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）。**只取应列收（服务）侧的毛利**：设备/施工单元铁律不列收、其毛利与列收判断无关，绝不要把设备/施工的毛利混算或拖低进这个值。若项目含多块服务，取在问列收的那块服务的毛利（多服务单元的精确逐块判断是已知缺口，暂取主服务块）。
+- gross_margin: "lte_0"（≤0%）| "lte_3"（1-3%）| "pct_3_4"（3-4%）| "pct_4_5"（4-5%）| "pct_5_6"（5-6%）| "pct_6_10"（6-10%）| "gt_10"（10%以上）。**只取服务侧毛利**，绝不要把设备、成品软件或施工毛利混算进来。项目整体利润率另填 overall_margin。
 - revenue_recognition: "point_in_time"（时点法）| "over_time"（时段法）| "mixed" | "uncertain"
 - is_end_user: true | false
 - has_telecom_capability: "yes" | "no" | "partial"
@@ -535,7 +601,7 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 - service_period: "lte_3m" | "3m_12m" | "gt_12m"
 - has_prepayment: true | false
 - has_advance_funding: true | false
-- service_delivery_mode: "all_telecom"（全部自有团队）| "mixed"（混合（自有+外包））| "all_external"（全部外包/供应商执行）。仅 service 类型必填。（勿输出 service_capability_level，该等级由系统根据本字段推导）
+- service_delivery_mode: "all_telecom"（全部自有团队）| "mixed"（混合（自有+外包））| "all_external"（全部外包/供应商执行）。仅 service 类型必填，是六到位在服务场景下的客观证据之一。
 - bpm_id: 字符串。测试阶段可为任意占位编号；正式环境建议与 BPM 一致（如 BPM2024XXXXX）
 - control_roles: **数组**，电信在本项目占据的关键角色编号（字符串）。取值：
   - 必选区："6"（应标与签约统筹）| "7"（软硬件采购决策）| "9"（全流程交付管理与质量责任）| "16"（到货验收及设备管理，涉硬件时）
@@ -545,9 +611,15 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
   提取规则：**只抽取用户明确说出的角色**，不要从"自有能力"/"主要责任人"等抽象描述推断。
   示例：用户说"电信主导方案设计、自主采购、负责全流程交付管理" → ["3","7","9"]；用户说"电信自主投标签约、设备由电信负责验收" → ["6","16"]；用户只说项目金额/客户/范围/毛利 → **不输出该字段**（让用户自己手填，绝不臆测）。
 
+- six_daowei_facts_confirmed / six_daowei_customer_insight / six_daowei_solution_control / six_daowei_bid_autonomy /
+  six_daowei_procurement_autonomy / six_daowei_project_management /
+  six_daowei_operations_autonomy / six_daowei_level：均为右侧面板人工确认字段。
+  **不要输出、不要代替用户确认，也不要在对话里逐项重复追问**。新诊断会在用户确认组合关系和最终核算单元列收意图后，对每个拟全额单元分别完成六到位与 R08 自查。
+- service_capability_level：历史兼容字段，**不要输出**。
+
 ### 27 号文列收模式字段（全额资格判定，见 docs/adr/0004）——均非必填，**只抽用户明确说出的，拿不准就不输出，让用户手填**：
 - overall_margin: 项目**整体**税前利润率（**含硬件**，区别于服务侧 gross_margin）。同一套分桶："lte_0"|"lte_3"|"pct_3_4"|"pct_4_5"|"pct_5_6"|"pct_6_10"|"gt_10"。喂列收模式门槛（服务整合≥10%/单一履约≥5%）。用户明确说整体利润率才抽。
-- major_integration: 是否**重大整合（单一组合产出）**。"yes"（硬件与服务深度耦合、电信做了重大定制/修改、交付一个功能完整的单一系统）| "no"（分别提供商品+服务）| "uncertain"。**只在用户明确说"深度定制/重大修改/系统级集成"才抽 yes**，笼统的"提供了集成服务"**不算**、不要臆测。
+- major_integration：历史字段，**不要输出**。新诊断在核算单元面板按四项履约关系事实逐组合确认，不再使用项目级重大整合单值。
 - payment_terms: 前向付款节点。"standard"（首付款+到货验收尾款）| "other"（分期/账期等）。明确说付款方式才抽。
 - ownership_transfer: 硬件产权是否验收后转移客户。"yes" | "no" | "uncertain"。
 - collective_procurement_ratio: 后向集采比例。"gte_60"（≥60%）| "lt_60"（<60%）| "unknown"。
@@ -682,24 +754,27 @@ async def chat_with_ai(messages: list[dict], current_fields: dict, project_type:
 
 
 # ── 核算单元切分（#7，见 docs/adr/0002）──
-UNIT_SEGMENT_PROMPT = """你是电信 ICT 项目财务核算助手。请把下面这段项目描述切分成「核算单元」——一笔合同里被分别核算的最小业务块。
+UNIT_SEGMENT_PROMPT = """你是电信 ICT 项目财务核算助手。请先把项目描述切分成最小的原始业务单元，并给出可能需要组合判断的草稿建议。最终分类和组合关系由用户确认。
 
 对每个核算单元输出字段：
 - name: 单元名称
-- declared_type: 申报业务类型，取值之一：设备 | 施工 | 服务 | 标品 | 其他
+- declared_type: 申报业务类型，取值之一：设备 | 成品软件 | 施工 | 服务 | 标品 | 其他
 - amount: 收入金额（数字，单位元；不确定填 null）
 - tax_rate: 税率（字符串如 "13%"/"6%"；不确定 null）
 - gross: 毛利额或毛利率（字符串描述；不确定 null）
 - logistics: 物流是否电信主控，取值：self | supplier_direct | unknown
 - has_self_capability: 是否融入电信自有能力，取值：true | false | unknown
-- whitelisted: 是否属于集团白名单标准化硬件/成品软件（仅设备/标品有意义），取值：true | false | unknown
+- whitelisted: 是否属于集团白名单（仅设备/成品软件有意义），取值：true | false | unknown
+- suggested_group: 若多个原始单元可能构成同一组合产出，填写相同的简短候选组名；明显分别交付或拿不准时填 null
 - reason: declared_type / whitelisted 的简短理由
 
 规则：
-- declared_type=设备/标品 时才判 whitelisted；施工恒非白名单(false)、服务不适用(填 null)。
+- 标品专指电信自有产品，例如电话、宽带、天翼云；标品固定全额，不判断白名单，也不参与组合。
+- 成品软件指 Oracle、Windows 等可独立交付的成品授权软件。declared_type=设备/成品软件 时才判 whitelisted；施工、服务、标品均填 null。
   白名单大类：硬件=计算存储/网络/安全/无线/终端/AI机器人/机房配套/低空经济；软件=基础/通用/行业/安全软件（成品授权）。
   室分/综合布线/弱电/LED屏/机房装修=施工本质，whitelisted=false。拿不准填 "unknown"（系统保守按非白名单处理）。
-- 不要输出 listed 字段——是否列收由系统按 27 号文列收模式（控制权+门槛+白名单）算出，不是你判定的。
+- 按业务实质分类，不要只靠关键词。例如客户交付的服务器/存储通常是设备；布线、安装、弱电施工通常是施工；电信自投资设备打包另由项目事实进入资本投资提示。
+- 不要输出 listed 字段。列收意图由用户在组合关系确认后，对最终核算单元逐一确认。
 宁可把不确定的值填 null，也不要编造。只输出一个 JSON 数组，不要任何解释文字。"""
 
 

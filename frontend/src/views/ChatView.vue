@@ -139,31 +139,25 @@
             </div>
           </section>
 
-          <!-- 核算单元（#7）-->
+          <!-- 1. 原始业务单元 -->
           <section class="fields-section units-section">
             <div class="section-head">
-              <span class="section-head-title">核算单元</span>
+              <span class="section-head-title">1. 原始业务单元</span>
               <button class="units-segment-btn" :disabled="unitsLoading" @click="doSegmentUnits">
                 {{ unitsLoading ? '切分中…' : (accountingUnits.length ? '重新切分' : 'AI 切分') }}
               </button>
             </div>
             <div class="units-hint">
-              <p>把项目切分成不同的核算单元：</p>
-              <ol class="units-hint-list">
-                <li>设备/施工不列收</li>
-                <li>重点关注「服务」单元</li>
-              </ol>
-              <p>AI 切分为草稿，请确认或微调。</p>
+              按业务实质确认最小业务块。标品指电话、宽带、天翼云等电信自有产品；成品软件指 Oracle、Windows 等独立授权软件。
             </div>
             <div v-if="unitsLoading" class="section-parsing"><span class="parsing-dot"></span>AI 正在切分核算单元…</div>
             <div v-else-if="accountingUnits.length === 0" class="section-empty">
               尚未切分。点「AI 切分」按对话拆分核算单元，或手动添加。
             </div>
             <div v-else class="units-list">
-              <div v-for="(u, idx) in accountingUnits" :key="idx" class="unit-card">
+              <div v-for="(u, idx) in accountingUnits" :key="u.id || idx" class="unit-card">
                 <div class="unit-row-top">
                   <input class="unit-name" v-model="u.name" placeholder="单元名称" @change="persistUnits" />
-                  <span class="unit-listed-badge" :class="listedClass(u.listed)">{{ listedLabel(u.listed) }}</span>
                   <button class="unit-del" @click="removeUnit(idx)" title="删除该单元">✕</button>
                 </div>
                 <div class="unit-row-fields">
@@ -175,27 +169,17 @@
                   <label>金额
                     <input v-model="u.amount" placeholder="元" @change="persistUnits" />
                   </label>
-                  <label>列收
-                    <select v-model="u.listed" @change="persistUnits"
-                            :disabled="u.declared_type === '设备' || u.declared_type === '施工'">
-                      <option :value="true">列收候选</option>
-                      <option :value="false">不列收</option>
-                      <option value="uncertain">待定</option>
-                    </select>
-                  </label>
                 </div>
-                <!-- 集团白名单（27 号文，见 docs/adr/0004）：仅设备/标品有意义，是全额资格门票 -->
-                <div v-if="u.declared_type === '设备' || u.declared_type === '标品'" class="unit-row-fields unit-row-whitelist">
+                <div v-if="u.declared_type === '设备' || u.declared_type === '成品软件'" class="unit-row-fields unit-row-whitelist">
                   <label>集团白名单
                     <select v-model="u.whitelisted" @change="persistUnits">
                       <option :value="true">是（标准化成品）</option>
-                      <option :value="false">否（施工本质/非标）</option>
+                      <option :value="false">否</option>
                       <option value="unknown">不确定</option>
                     </select>
                   </label>
-                  <span class="unit-wl-hint">白名单是全额列收的门票；不确定按非白名单从严，确认后或可改善。</span>
+                  <span class="unit-wl-hint">不确定不会直接改成净额，报告按暂定全额、高风险提示补充依据。</span>
                 </div>
-                <!-- 硬转服务举证字段：仅服务单元相关（引擎据 gross/logistics/has_self_capability 判嫌疑） -->
                 <div v-if="u.declared_type === '服务'" class="unit-row-fields unit-row-evidence">
                   <label>毛利
                     <input v-model="u.gross" placeholder="如 8% 或 平进平出" @change="persistUnits" />
@@ -218,20 +202,78 @@
                 <div v-if="u.reason" class="unit-reason">{{ u.reason }}</div>
               </div>
             </div>
-            <button v-if="accountingUnits.length > 0 || sessionId" class="units-add-btn" @click="addUnit">＋ 添加核算单元</button>
+            <button v-if="accountingUnits.length > 0 || sessionId" class="units-add-btn" @click="addUnit">＋ 添加原始单元</button>
             <p v-if="unitsSaveError" class="units-save-error">⚠ {{ unitsSaveError }}</p>
           </section>
 
-          <!-- 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）-->
-          <section class="fields-section ctrl-roles-section">
+          <!-- 2. 履约关系与组合 -->
+          <section v-if="accountingUnits.length" class="fields-section grouping-section">
             <div class="section-head">
-              <span class="section-head-title">控制权角色</span>
-              <span class="section-head-meta ctrl-roles-meta">总额法资格 · 自查</span>
+              <span class="section-head-title">2. 履约关系与组合</span>
+              <button class="units-segment-btn" @click="addGroup">新增候选组合</button>
             </div>
-            <div class="ctrl-roles-hint">
-              <p>电信在本项目占据哪些<strong>关键角色</strong>（决策/主导/责任）？</p>
-              <p class="ctrl-roles-hint-sub">勾选标准：<strong>必选项每项都要 + 三组二选一每组至少占一个</strong> = 总额法资格成立。AI 解析不出的多需手动确认。</p>
+            <div class="units-hint">只有可能形成一个组合产出的原始单元才放进同一候选组。未加入组合的单元自动单独核算，标品不参与组合。</div>
+            <div v-if="accountingGroups.length === 0" class="section-empty">当前全部按单独核算预览；需要组合时新增候选组合。</div>
+            <div v-for="(group, groupIndex) in accountingGroups" :key="group.id" class="group-card">
+              <div class="unit-row-top">
+                <input class="unit-name" v-model="group.name" placeholder="候选组合名称" @change="persistUnits" />
+                <button class="unit-del" @click="removeGroup(groupIndex)" title="删除候选组合">✕</button>
+              </div>
+              <div class="group-members">
+                <label v-for="source in groupableSources" :key="source.id" class="group-member">
+                  <input type="checkbox" :checked="group.source_unit_ids.includes(source.id)"
+                         :disabled="sourceUsedByOtherGroup(source.id, group.id)"
+                         @change="toggleGroupMember(group, source.id, $event.target.checked)" />
+                  <span>{{ source.name || '未命名单元' }} · {{ source.declared_type }}</span>
+                </label>
+              </div>
+              <div class="po-grid">
+                <div v-for="question in PO_QUESTIONS" :key="question.key" class="po-row">
+                  <span>{{ question.label }}</span>
+                  <div class="mini-segmented">
+                    <button type="button" :class="{ active: group.po_facts[question.key] === 'yes' }" @click="setPoFact(group, question.key, 'yes')">是</button>
+                    <button type="button" :class="{ active: group.po_facts[question.key] === 'no' }" @click="setPoFact(group, question.key, 'no')">否</button>
+                  </div>
+                </div>
+              </div>
+              <div class="group-confirm-row">
+                <span>系统建议：{{ relationshipLabel(groupSuggestion(group)) }}</span>
+                <div class="mini-segmented">
+                  <button type="button" :class="{ active: group.confirmed_relationship === 'combined' }" @click="confirmGroup(group, 'combined')">组合核算</button>
+                  <button type="button" :class="{ active: group.confirmed_relationship === 'separate' }" @click="confirmGroup(group, 'separate')">分别核算</button>
+                </div>
+              </div>
             </div>
+          </section>
+
+          <!-- 3. 最终核算单元与列收意图 -->
+          <section v-if="finalUnits.length" class="fields-section final-units-section">
+            <div class="section-head">
+              <span class="section-head-title">3. 最终核算单元与列收意图</span>
+              <span class="section-head-meta">{{ finalUnits.length }} 个</span>
+            </div>
+            <div class="units-hint">系统可预写建议，但最终以这里确认的拟全额或拟净额意图为输入。标品固定全额。</div>
+            <div v-for="unit in finalUnits" :key="unit.id" class="final-unit-row">
+              <div>
+                <strong>{{ unit.name }}</strong>
+                <span>{{ unit.declared_types.join('、') }} · {{ relationshipLabel(unit.relationship) }}</span>
+              </div>
+              <span v-if="unit.declared_type === '标品'" class="fixed-full-label">固定全额</span>
+              <div v-else class="mini-segmented">
+                <button type="button" :class="{ active: unit.decision.listing_intent === 'full' && unit.decision.listing_intent_confirmed }" @click="setListingIntent(unit, 'full')">拟全额</button>
+                <button type="button" :class="{ active: unit.decision.listing_intent === 'net' && unit.decision.listing_intent_confirmed }" @click="setListingIntent(unit, 'net')">拟净额</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4. 拟全额核算单元自查 -->
+          <section v-if="fullIntentUnits.length" class="fields-section ctrl-roles-section">
+            <div class="section-head">
+              <span class="section-head-title">4. 拟全额核算单元自查</span>
+              <span class="section-head-meta ctrl-roles-meta">共性事实一次填写 · 单元分别确认</span>
+            </div>
+            <div class="ctrl-roles-hint">证据未齐仍可出报告，按暂定全额和高风险提示；本工具只列标准证据清单，不上传附件、不要求说明。</div>
+            <div class="shared-facts-title">项目共性事实</div>
             <div v-for="grp in ROLE_GROUPS" :key="grp.title"
                  v-show="grp.kind !== 'mandatory_hw' || hasHardware"
                  class="ctrl-role-group" :class="`ctrl-grp-${grp.kind}`">
@@ -244,16 +286,62 @@
                 <span class="ctrl-role-name">{{ r.name }}</span>
               </label>
             </div>
+            <div v-for="unit in fullIntentUnits" :key="unit.id" class="unit-check-card">
+              <div class="unit-check-title">
+                <div><strong>{{ unit.name }}</strong><span>{{ unit.declared_types.join('、') }}</span></div>
+                <label><input type="checkbox" v-model="unit.decision.six_daowei.facts_confirmed" @change="persistUnits" /> 已核对本单元事实</label>
+              </div>
+              <div class="unit-na-row">
+                <label><input type="checkbox" v-model="unit.decision.six_daowei.no_external_procurement" @change="onApplicabilityChange(unit, 'procurement')" /> 无外部采购</label>
+                <label><input type="checkbox" v-model="unit.decision.six_daowei.no_operations_obligation" @change="onApplicabilityChange(unit, 'operations')" /> 无运维、售后或维保义务</label>
+              </div>
+              <div class="daowei-dimensions">
+                <div v-for="dimension in UNIT_SIX_DIMENSIONS" :key="dimension.key" class="daowei-dimension-row compact">
+                  <span class="daowei-dimension-label">{{ dimension.label }}</span>
+                  <div class="daowei-segmented" role="group" :aria-label="dimension.label">
+                    <button v-for="option in sixOptionsFor(unit, dimension.key)" :key="option.value" type="button"
+                            :class="{ active: unit.decision.six_daowei.dimensions[dimension.key] === option.value }"
+                            @click="setSixValue(unit, dimension.key, option.value)">{{ option.label }}</button>
+                  </div>
+                </div>
+              </div>
+              <div class="unit-level-row">
+                <span>六到位综合结论</span>
+                <div class="mini-segmented">
+                  <button v-for="option in SIX_DAOWEI_LEVEL_OPTIONS" :key="option.value" type="button"
+                          :class="{ active: unit.decision.six_daowei.level === option.value }"
+                          @click="setSixLevel(unit, option.value)">{{ option.label }}</button>
+                </div>
+              </div>
+              <div class="r08-block">
+                <div class="shared-facts-title">R08 控制权四要件</div>
+                <div v-for="question in R08_QUESTIONS" :key="question.key" class="po-row">
+                  <span>{{ question.label }}</span>
+                  <div class="mini-segmented">
+                    <button v-for="option in R08_OPTIONS" :key="option.value" type="button"
+                            :class="{ active: unit.decision.r08.answers[question.key] === option.value }"
+                            @click="setR08Value(unit, question.key, option.value)">{{ option.label }}</button>
+                  </div>
+                </div>
+                <div class="unit-level-row">
+                  <span>人工控制权结论</span>
+                  <div class="mini-segmented">
+                    <button type="button" :class="{ active: unit.decision.r08.conclusion === 'principal' }" @click="setR08Conclusion(unit, 'principal')">主要责任人</button>
+                    <button type="button" :class="{ active: unit.decision.r08.conclusion === 'agent' }" @click="setR08Conclusion(unit, 'agent')">代理人</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
 
-          <!-- 列收模式信息（27 号文，全额资格判定输入，见 docs/adr/0004）-->
-          <section class="fields-section listing-fields-section">
+          <!-- 5. 公共政策信息 -->
+          <section v-if="needsPolicyFields" class="fields-section listing-fields-section">
             <div class="section-head">
-              <span class="section-head-title">列收模式信息</span>
-              <span class="section-head-meta listing-fields-meta">27 号文 · 全额资格</span>
+              <span class="section-head-title">5. 公共政策信息</span>
+              <span class="section-head-meta listing-fields-meta">整个 BPM 项目口径</span>
             </div>
             <div class="listing-fields-hint">
-              <p>判定项目按<strong>全额还是净额</strong>列收的关键输入。多为售中/财务信息，对话常缺，需手动确认。</p>
+              <p>仅在拟全额单元含设备、成品软件或施工时显示。金额占比和整体利润率按整个 BPM 项目计算。</p>
             </div>
             <div class="listing-fields-list">
               <div v-for="key in LISTING_FIELDS" :key="key" class="listing-field-row">
@@ -269,24 +357,27 @@
           </section>
 
           <!-- ② 待补充信息 -->
-          <section class="fields-section section-pending-block">
+          <section v-if="isComplete || generalMissingFields.length > 0 || !structureReady" class="fields-section section-pending-block">
             <div class="section-head">
               <span class="section-head-title">待补充信息</span>
               <span
                 v-if="!isComplete"
                 class="section-head-meta section-head-warn"
-              >{{ missingFields.length }} 项</span>
+              >{{ pendingTotal }} 项</span>
               <span v-else class="section-head-meta section-head-ok">已齐</span>
+            </div>
+            <div v-if="!structureReady" class="structure-pending">
+              {{ structurePendingMessage }}
             </div>
             <div v-if="isComplete" class="pending-all-clear">
               必填项已全部收集，请核对左侧对话与上方已解析字段后，点击下方提交诊断。
             </div>
-            <div v-else-if="missingFields.length > 0" class="pending-list">
+            <div v-else-if="generalMissingFields.length > 0" class="pending-list">
               <p class="pending-intro">
                 可在下方直接选择或修改；也可在左侧对话中说明，系统将自动解析。
               </p>
               <div class="pending-edit-list">
-                <div v-for="f in missingFields" :key="'p-' + f" class="pending-field-row">
+                <div v-for="f in generalMissingFields" :key="'p-' + f" class="pending-field-row">
                   <div class="pending-label-row">{{ getFieldLabel(f) }}</div>
                   <FieldControl
                     :field-key="f"
@@ -300,7 +391,7 @@
             <div v-else-if="loading" class="section-empty subtle">
               正在根据最新对话计算待补充项…
             </div>
-            <div v-else class="section-empty subtle">
+            <div v-else-if="structureReady" class="section-empty subtle">
               暂无待补充清单，请再发送一条消息或检查网络与 API 配置。
             </div>
           </section>
@@ -345,7 +436,7 @@
       @click="openDrawer"
     >
       <span v-if="isComplete">✅ 可提交诊断</span>
-      <span v-else>📋 字段信息 · 待补充 {{ missingFields.length }} 项</span>
+      <span v-else>📋 字段信息 · 待补充 {{ pendingTotal }} 项</span>
     </button>
 
   </div>
@@ -366,7 +457,15 @@ const FIELD_LABELS = {
   scheme_reviewed: '方案是否经过中台评审', hardware_construction: '是否含硬件/施工内容',
   logistics_control: '物流是否由电信主控',
   service_delivery_mode: '服务交付是否由电信自有团队执行',
-  service_capability_level: '电信自有服务能力等级（六必要，系统依据交付模式推导）',
+  service_capability_level: '六到位服务能力等级（历史自动推导）',
+  six_daowei_facts_confirmed: '六到位基础事实已核对',
+  six_daowei_customer_insight: '客情掌握到位',
+  six_daowei_solution_control: '方案总控到位',
+  six_daowei_bid_autonomy: '谈判/应标自主到位',
+  six_daowei_procurement_autonomy: '采购自主到位',
+  six_daowei_project_management: '项目强管理到位',
+  six_daowei_operations_autonomy: '运维自主到位',
+  six_daowei_level: '六到位综合结论',
   service_period: '服务周期',
   has_prepayment: '我方采购是否含预付款', has_advance_funding: '我方是否存在垫资',
   related_party_checked: '三方关联关系是否已核查',
@@ -399,8 +498,8 @@ const realtimeWarnings = ref([])
 // AI 提取的字段键集合（本轮累计，用于标注来源）
 const aiExtractedKeys = ref(new Set())
 
-const isComplete = computed(
-  () => sessionId.value != null && missingFields.value.length === 0
+const isComplete = computed(() =>
+  sessionId.value != null && missingFields.value.length === 0 && structureReady.value
 )
 const currentFields = ref({})
 const messagesRef = ref(null)
@@ -410,29 +509,156 @@ const drawerOpen = ref(false)
 function openDrawer() { drawerOpen.value = true }
 function closeDrawer() { drawerOpen.value = false }
 
-// ── 核算单元（#7，见 docs/adr/0002）──
-const accountingUnits = ref([])
+// ── 核算结构 v2：原始单元 → 组合 → 最终核算单元 → 单元级自查 ──
+function emptyStructure() {
+  return { schema_version: 2, source_units: [], groups: [], decisions: {}, archived_decisions: [] }
+}
+const accountingStructure = ref(emptyStructure())
+const accountingUnits = computed(() => accountingStructure.value.source_units || [])
+const accountingGroups = computed(() => accountingStructure.value.groups || [])
 const unitsLoading = ref(false)
 const unitsSaveError = ref('')
-const UNIT_TYPES = ['设备', '施工', '服务', '标品', '其他']
+const UNIT_TYPES = ['设备', '成品软件', '施工', '服务', '标品', '其他']
+const PO_QUESTIONS = [
+  { key: 'po1_independent_benefit', label: '客户能否从该商品或服务本身或结合其他易获得资源中受益？' },
+  { key: 'po2_significant_integration', label: '电信是否提供重大整合服务并形成一个组合产出？' },
+  { key: 'po3_modification', label: '其中一项是否对其他项进行重大修改或定制？' },
+  { key: 'po4_interdependence', label: '各项是否高度依赖、无法独立交付或验收？' },
+]
+const UNIT_SIX_DIMENSIONS = [
+  { key: 'customer_insight', label: '客情掌握到位' },
+  { key: 'solution_control', label: '方案总控到位' },
+  { key: 'bid_autonomy', label: '谈判/应标自主到位' },
+  { key: 'procurement_autonomy', label: '采购自主到位' },
+  { key: 'project_management', label: '项目强管理到位' },
+  { key: 'operations_autonomy', label: '运维自主到位' },
+]
+const SIX_DAOWEI_OPTIONS = [
+  { value: 'in_place', label: '到位' },
+  { value: 'not_in_place', label: '不到位' },
+  { value: 'pending_evidence', label: '待补证据' },
+]
+const SIX_DAOWEI_LEVEL_OPTIONS = [
+  { value: 'strong', label: '强' },
+  { value: 'medium', label: '中' },
+  { value: 'none', label: '无' },
+]
+const R08_QUESTIONS = [
+  { key: 'ctrl1_control_before_transfer', label: '向客户转移前已取得商品或服务控制权' },
+  { key: 'ctrl2_primary_responsibility', label: '承担质量、验收及售后主要责任' },
+  { key: 'ctrl3_inventory_delivery_risk', label: '承担库存、交付、返工或履约风险' },
+  { key: 'ctrl4_pricing_autonomy', label: '对客户价格具有自主决定权' },
+]
+const R08_OPTIONS = [
+  { value: 'yes', label: '是' },
+  { value: 'no', label: '否' },
+  { value: 'pending_evidence', label: '待补证据' },
+]
 
-function listedLabel(v) {
-  if (v === true) return '列收候选'
-  if (v === false) return '不列收'
-  return '待定'
+function nextLocalId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
-function listedClass(v) {
-  if (v === true) return 'unit-listed-yes'
-  if (v === false) return 'unit-listed-no'
-  return 'unit-listed-uncertain'
+
+function emptyDecision(isStandard = false) {
+  return {
+    listing_intent: isStandard ? 'full' : null,
+    listing_intent_confirmed: isStandard,
+    six_daowei: {
+      facts_confirmed: false, dimensions: {}, level: null, confirmation_status: isStandard ? 'confirmed' : 'draft',
+      no_external_procurement: false, no_operations_obligation: false,
+    },
+    r08: { answers: {}, conclusion: null, confirmation_status: isStandard ? 'confirmed' : 'draft' },
+  }
 }
+
+function normalizeStructure(raw) {
+  const structure = raw?.schema_version === 2 ? structuredClone(raw) : emptyStructure()
+  structure.source_units ||= []
+  structure.groups ||= []
+  structure.decisions ||= {}
+  structure.archived_decisions ||= []
+  for (const [index, source] of structure.source_units.entries()) {
+    source.id ||= `src-${index + 1}`
+    source.logistics ??= 'unknown'
+    source.has_self_capability ??= 'unknown'
+    if (!['设备', '成品软件'].includes(source.declared_type)) source.whitelisted = null
+  }
+  for (const group of structure.groups) {
+    group.id ||= nextLocalId('grp')
+    group.source_unit_ids ||= []
+    group.po_facts ||= {}
+  }
+  return structure
+}
+
+function ensureDecision(unit) {
+  const decisions = accountingStructure.value.decisions
+  if (!decisions[unit.id]) decisions[unit.id] = emptyDecision(unit.declared_type === '标品')
+  const decision = decisions[unit.id]
+  decision.six_daowei ||= emptyDecision().six_daowei
+  decision.six_daowei.dimensions ||= {}
+  decision.r08 ||= emptyDecision().r08
+  decision.r08.answers ||= {}
+  if (unit.declared_type === '标品') {
+    decision.listing_intent = 'full'
+    decision.listing_intent_confirmed = true
+  }
+  return decision
+}
+
+const finalUnits = computed(() => {
+  const sources = accountingUnits.value
+  const sourceById = new Map(sources.map((source) => [source.id, source]))
+  const combined = new Set()
+  const finals = []
+  for (const group of accountingGroups.value) {
+    const members = (group.source_unit_ids || []).map((id) => sourceById.get(id)).filter(Boolean)
+    if (group.confirmed_relationship !== 'combined' || members.length < 2) continue
+    members.forEach((member) => combined.add(member.id))
+    const types = [...new Set(members.map((member) => member.declared_type))]
+    const unit = {
+      id: group.id, name: group.name || '组合核算单元', source_unit_ids: members.map((member) => member.id),
+      declared_type: types.length === 1 ? types[0] : '组合', declared_types: types,
+      relationship: 'combined', amount: members.reduce((sum, member) => sum + (Number(member.amount) || 0), 0),
+    }
+    unit.decision = ensureDecision(unit)
+    finals.push(unit)
+  }
+  for (const source of sources) {
+    if (combined.has(source.id)) continue
+    const unit = {
+      id: source.id, name: source.name || '未命名核算单元', source_unit_ids: [source.id],
+      declared_type: source.declared_type, declared_types: [source.declared_type],
+      relationship: 'separate', amount: source.amount,
+    }
+    unit.decision = ensureDecision(unit)
+    finals.push(unit)
+  }
+  return finals
+})
+
+const fullIntentUnits = computed(() => finalUnits.value.filter((unit) => unit.decision.listing_intent === 'full'))
+const needsPolicyFields = computed(() => fullIntentUnits.value.some((unit) =>
+  unit.declared_types.some((type) => ['设备', '成品软件', '施工'].includes(type))
+))
+const groupableSources = computed(() => accountingUnits.value.filter((source) => source.declared_type !== '标品'))
+const structureReady = computed(() => {
+  if (!accountingUnits.value.length || accountingUnits.value.some((source) => source.declared_type === '其他')) return false
+  for (const group of accountingGroups.value) {
+    if ((group.source_unit_ids || []).length < 2) return false
+    if (PO_QUESTIONS.some((question) => !['yes', 'no'].includes(group.po_facts?.[question.key]))) return false
+    if (!['combined', 'separate'].includes(group.confirmed_relationship)) return false
+  }
+  return finalUnits.value.every((unit) => unit.declared_type === '标品'
+    || (['full', 'net'].includes(unit.decision.listing_intent) && unit.decision.listing_intent_confirmed === true))
+})
 
 async function doSegmentUnits() {
   if (!sessionId.value || unitsLoading.value) return
   unitsLoading.value = true
   try {
     const res = await segmentUnits(sessionId.value)
-    accountingUnits.value = res.data.accounting_units || []
+    accountingStructure.value = normalizeStructure(res.data.accounting_structure)
   } catch (e) {
     alert('核算单元切分失败：' + formatApiError(e))
   } finally {
@@ -441,44 +667,187 @@ async function doSegmentUnits() {
 }
 
 function onUnitTypeChange(u) {
-  // 硬件/施工 铁律不列收（与后端一致）
-  if (u.declared_type === '设备' || u.declared_type === '施工') u.listed = false
+  if (!['设备', '成品软件'].includes(u.declared_type)) u.whitelisted = null
+  else if (![true, false, 'unknown'].includes(u.whitelisted)) u.whitelisted = 'unknown'
+  for (const group of accountingGroups.value) {
+    if (u.declared_type === '标品') group.source_unit_ids = group.source_unit_ids.filter((id) => id !== u.id)
+  }
   persistUnits()
 }
 
 function addUnit() {
-  accountingUnits.value.push({
+  accountingStructure.value.source_units.push({
+    id: nextLocalId('src'),
     name: '', declared_type: '服务', amount: null, tax_rate: null,
     gross: null, logistics: 'unknown', has_self_capability: 'unknown',
-    whitelisted: 'unknown', listed: 'uncertain', reason: '',
+    whitelisted: null, reason: '',
   })
   persistUnits()
 }
 
 function removeUnit(idx) {
-  accountingUnits.value.splice(idx, 1)
+  const [removed] = accountingStructure.value.source_units.splice(idx, 1)
+  for (const group of accountingGroups.value) {
+    group.source_unit_ids = group.source_unit_ids.filter((id) => id !== removed?.id)
+  }
   persistUnits()
 }
 
-async function persistUnits() {
-  if (!sessionId.value) return
-  try {
-    await saveUnits(sessionId.value, accountingUnits.value)
-    unitsSaveError.value = ''
-  } catch (e) {
-    // 保存失败不打断填报，但要让用户看见——否则误以为已确认（编辑任意字段会再尝试）
-    unitsSaveError.value = '核算单元未能保存，请检查网络后重试'
+function addGroup() {
+  accountingStructure.value.groups.push({
+    id: nextLocalId('grp'), name: '', source_unit_ids: [], po_facts: {},
+    relationship_suggestion: null, confirmed_relationship: null,
+  })
+}
+
+function removeGroup(index) {
+  accountingStructure.value.groups.splice(index, 1)
+  persistUnits()
+}
+
+function sourceUsedByOtherGroup(sourceId, currentGroupId) {
+  return accountingGroups.value.some((group) => group.id !== currentGroupId && group.source_unit_ids.includes(sourceId))
+}
+
+function toggleGroupMember(group, sourceId, checked) {
+  if (checked && !group.source_unit_ids.includes(sourceId)) group.source_unit_ids.push(sourceId)
+  if (!checked) group.source_unit_ids = group.source_unit_ids.filter((id) => id !== sourceId)
+  group.confirmed_relationship = null
+  persistUnits()
+}
+
+function groupSuggestion(group) {
+  if (PO_QUESTIONS.some((question) => !['yes', 'no'].includes(group.po_facts?.[question.key]))) return null
+  return group.po_facts.po1_independent_benefit === 'yes'
+    && PO_QUESTIONS.slice(1).every((question) => group.po_facts[question.key] === 'no')
+    ? 'separate' : 'combined'
+}
+
+function setPoFact(group, key, value) {
+  group.po_facts[key] = value
+  group.relationship_suggestion = groupSuggestion(group)
+  group.confirmed_relationship = null
+  persistUnits()
+}
+
+function confirmGroup(group, relationship) {
+  group.confirmed_relationship = relationship
+  persistUnits()
+}
+
+function relationshipLabel(value) {
+  return { combined: '组合核算', separate: '分别核算' }[value] || '待确认'
+}
+
+function setListingIntent(unit, intent) {
+  unit.decision.listing_intent = intent
+  unit.decision.listing_intent_confirmed = true
+  persistUnits()
+}
+
+function sixOptionsFor(unit, key) {
+  const options = [...SIX_DAOWEI_OPTIONS]
+  if (key === 'procurement_autonomy' && unit.decision.six_daowei.no_external_procurement) {
+    options.push({ value: 'not_applicable', label: '不适用' })
   }
+  if (key === 'operations_autonomy' && unit.decision.six_daowei.no_operations_obligation) {
+    options.push({ value: 'not_applicable', label: '不适用' })
+  }
+  return options
+}
+
+function onApplicabilityChange(unit, kind) {
+  const six = unit.decision.six_daowei
+  if (kind === 'procurement' && !six.no_external_procurement && six.dimensions.procurement_autonomy === 'not_applicable') {
+    six.dimensions.procurement_autonomy = null
+  }
+  if (kind === 'operations' && !six.no_operations_obligation && six.dimensions.operations_autonomy === 'not_applicable') {
+    six.dimensions.operations_autonomy = null
+  }
+  six.confirmation_status = 'confirmed'
+  persistUnits()
+}
+
+function setSixValue(unit, key, value) {
+  unit.decision.six_daowei.dimensions[key] = value
+  unit.decision.six_daowei.confirmation_status = 'confirmed'
+  persistUnits()
+}
+
+function setSixLevel(unit, value) {
+  unit.decision.six_daowei.level = value
+  unit.decision.six_daowei.confirmation_status = 'confirmed'
+  persistUnits()
+}
+
+function setR08Value(unit, key, value) {
+  unit.decision.r08.answers[key] = value
+  unit.decision.r08.confirmation_status = 'confirmed'
+  persistUnits()
+}
+
+function setR08Conclusion(unit, value) {
+  unit.decision.r08.conclusion = value
+  unit.decision.r08.confirmation_status = 'confirmed'
+  persistUnits()
+}
+
+let unitsSaveChain = Promise.resolve()
+let unitsSaveRevision = 0
+function persistUnits() {
+  if (!sessionId.value) return Promise.resolve()
+  const revision = ++unitsSaveRevision
+  const payload = structuredClone(accountingStructure.value)
+  unitsSaveChain = unitsSaveChain.catch(() => {}).then(async () => {
+    try {
+      const res = await saveUnits(sessionId.value, payload)
+      if (revision === unitsSaveRevision) {
+        accountingStructure.value = normalizeStructure(res.data.accounting_structure)
+      }
+      unitsSaveError.value = ''
+    } catch {
+      unitsSaveError.value = '核算单元未能保存，请检查网络后重试'
+    }
+  })
+  return unitsSaveChain
 }
 
 // 列收模式信息独立段管的字段（27 号文，见 docs/adr/0004）——全额资格判定输入
 const LISTING_FIELDS = [
-  'major_integration', 'overall_margin', 'payment_terms',
+  'overall_margin', 'payment_terms',
   'ownership_transfer', 'collective_procurement_ratio', 'is_capital_investment',
+]
+const SIX_DAOWEI_FIELDS = [
+  'six_daowei_facts_confirmed', 'six_daowei_customer_insight', 'six_daowei_solution_control',
+  'six_daowei_bid_autonomy', 'six_daowei_procurement_autonomy', 'six_daowei_project_management',
+  'six_daowei_operations_autonomy', 'six_daowei_level',
 ]
 
 // 独立段已经管的字段，不在「已解析」/「待补充」段重复渲染
-const DEDICATED_FIELDS = new Set(['control_roles', ...LISTING_FIELDS])
+const DEDICATED_FIELDS = new Set([
+  'control_roles', 'service_capability_level',
+  'major_integration', ...SIX_DAOWEI_FIELDS, ...LISTING_FIELDS,
+])
+
+const generalMissingFields = computed(() =>
+  missingFields.value.filter(key => !DEDICATED_FIELDS.has(key))
+)
+
+const structurePendingMessage = computed(() => {
+  if (!accountingUnits.value.length) return '请先建立至少一个原始业务单元。'
+  if (accountingUnits.value.some((source) => source.declared_type === '其他')) return '正式诊断不能保留“其他”，请按业务实质归入明确类别。'
+  for (const group of accountingGroups.value) {
+    if ((group.source_unit_ids || []).length < 2) return '候选组合至少应包含两个原始单元。'
+    if (PO_QUESTIONS.some((question) => !['yes', 'no'].includes(group.po_facts?.[question.key]))) return '请完成每个候选组合的四项履约关系判断。'
+    if (!['combined', 'separate'].includes(group.confirmed_relationship)) return '请确认每个候选组合最终组合核算或分别核算。'
+  }
+  if (!finalUnits.value.every((unit) => unit.declared_type === '标品'
+    || (['full', 'net'].includes(unit.decision.listing_intent) && unit.decision.listing_intent_confirmed === true))) {
+    return '请为每个最终核算单元确认拟全额或拟净额列收。'
+  }
+  return ''
+})
+const pendingTotal = computed(() => generalMissingFields.value.length + (structureReady.value ? 0 : 1))
 
 const parsedFieldKeys = computed(() => {
   const missing = new Set(missingFields.value)
@@ -494,7 +863,7 @@ const parsedFieldKeys = computed(() => {
   return ordered
 })
 
-// ── 控制权角色自查（总额法资格，见 docs/adr/0003）──
+// ── 六到位自查：项目角色 + 服务场景证据（见 docs/adr/0003）──
 const ROLE_GROUPS = [
   { title: '必选（每项都要）', kind: 'mandatory', items: [
     { id: '6', name: '应标与签约统筹者' },
@@ -520,7 +889,7 @@ const ROLE_GROUPS = [
 
 // hardware_construction 字段定义为 bool（options: [true, false]），不是 "yes"/"no" 字符串
 const hasHardware = computed(() =>
-  accountingUnits.value.some(u => u.declared_type === '设备' || u.declared_type === '施工')
+  accountingUnits.value.some(u => ['设备', '成品软件', '施工'].includes(u.declared_type))
   || currentFields.value.hardware_construction === true
 )
 
@@ -588,6 +957,7 @@ async function commitFieldPatch(partial) {
     const res = await patchSessionFields(sessionId.value, partial)
     currentFields.value = normalizeFieldsFromServer(res.data.extracted_fields)
     missingFields.value = res.data.missing_fields || []
+    if (res.data.accounting_structure) accountingStructure.value = normalizeStructure(res.data.accounting_structure)
     // 实时预警：手动修改字段时更新
     if (res.data.realtime_warnings?.length) {
       const newWarnings = res.data.realtime_warnings
@@ -671,6 +1041,7 @@ async function sendMessage() {
     sessionId.value = data.session_id
     currentFields.value = normalizeFieldsFromServer(data.extracted_fields || {})
     missingFields.value = data.missing_fields || []
+    if (data.accounting_structure) accountingStructure.value = normalizeStructure(data.accounting_structure)
 
     // 实时预警：合并本轮新预警
     if (data.realtime_warnings?.length) {
@@ -720,6 +1091,7 @@ async function submitDiagnosis() {
     }
   }, 12000)
   try {
+    await unitsSaveChain
     const res = await confirmDiagnosis(sessionId.value, currentFields.value)
     diagnosisId.value = res.data.diagnosis_id
     window.open(`/report/${diagnosisId.value}`, '_blank')
@@ -743,6 +1115,7 @@ function resetChat() {
   currentFields.value = {}
   realtimeWarnings.value = []
   aiExtractedKeys.value = new Set()
+  accountingStructure.value = emptyStructure()
   drawerOpen.value = false
 }
 </script>
@@ -1147,7 +1520,50 @@ function resetChat() {
 }
 .units-add-btn:hover { border-color: var(--blue-400); color: var(--blue-600); }
 
-/* ── 控制权角色自查（总额法资格，见 docs/adr/0003）── */
+.group-card, .unit-check-card {
+  border: 1px solid var(--slate-200); border-radius: 8px; padding: 12px;
+  background: #fff; margin-top: 10px;
+}
+.group-members { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 10px 0; }
+.group-member { display: flex; align-items: flex-start; gap: 7px; font-size: 11px; color: var(--slate-700); }
+.group-member input { margin-top: 2px; accent-color: var(--blue-600); }
+.group-member:has(input:disabled) { color: var(--slate-400); }
+.po-grid { border-top: 1px solid var(--slate-100); margin-top: 8px; }
+.po-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid var(--slate-100); font-size: 11px; color: var(--slate-700);
+}
+.mini-segmented { display: inline-flex; border: 1px solid var(--slate-200); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.mini-segmented button {
+  border: 0; border-right: 1px solid var(--slate-200); min-height: 30px; padding: 4px 10px;
+  background: #fff; color: var(--slate-600); font-size: 11px; cursor: pointer; white-space: nowrap;
+}
+.mini-segmented button:last-child { border-right: 0; }
+.mini-segmented button.active { background: var(--blue-600); color: #fff; font-weight: 700; }
+.group-confirm-row, .unit-level-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding-top: 10px; font-size: 11px; color: var(--slate-600);
+}
+.final-unit-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--slate-100);
+}
+.final-unit-row > div:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.final-unit-row strong { font-size: 13px; color: var(--slate-800); }
+.final-unit-row span { font-size: 10px; color: var(--slate-500); }
+.fixed-full-label { color: var(--green-700) !important; font-weight: 700; }
+.shared-facts-title { font-size: 12px; font-weight: 700; color: var(--slate-700); margin: 12px 0 8px; }
+.unit-check-card { border-left: 3px solid var(--blue-500); }
+.unit-check-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.unit-check-title > div { display: flex; flex-direction: column; gap: 2px; }
+.unit-check-title strong { font-size: 13px; color: var(--slate-800); }
+.unit-check-title span { font-size: 10px; color: var(--slate-500); }
+.unit-check-title label, .unit-na-row label { font-size: 10px; color: var(--slate-600); display: flex; align-items: center; gap: 5px; }
+.unit-check-title input, .unit-na-row input { accent-color: var(--blue-600); }
+.unit-na-row { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px; background: var(--slate-50); border-radius: 6px; }
+.daowei-dimension-row.compact { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(210px, 1.5fr); gap: 10px; align-items: center; padding: 8px 0; }
+.r08-block { margin-top: 12px; border-top: 1px solid var(--slate-200); }
+
+/* ── 六到位自查：项目角色 + 服务场景证据（见 docs/adr/0003）── */
 .ctrl-roles-section {}
 .ctrl-roles-meta {
   font-size: 11px; color: var(--slate-500); background: var(--slate-50);
@@ -1158,6 +1574,7 @@ function resetChat() {
 }
 .ctrl-roles-hint p { margin: 0 0 4px 0; }
 .ctrl-roles-hint-sub { color: var(--slate-500); font-size: 11px; }
+.ctrl-service-evidence { margin-bottom: 10px; }
 .ctrl-role-group {
   margin-bottom: 8px; padding: 8px 10px; border-radius: 6px;
 }
@@ -1183,6 +1600,73 @@ function resetChat() {
   border-radius: 4px; font-size: 11px; font-weight: 600; text-align: center;
 }
 .ctrl-role-name { flex: 1; }
+.daowei-facts-confirm {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 9px 10px;
+  border: 1px solid var(--slate-200); border-radius: 6px; background: #fff;
+  color: var(--slate-700); font-size: 11px; line-height: 1.5; cursor: pointer;
+}
+.daowei-facts-confirm input { margin-top: 2px; accent-color: var(--blue-600); }
+.daowei-step-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 14px;
+}
+.daowei-step-title {
+  display: flex; align-items: center; gap: 7px;
+  margin: 12px 0 8px; font-size: 12px; font-weight: 700; color: var(--slate-700);
+}
+.daowei-step-title span {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--slate-700); color: #fff; font-size: 11px;
+}
+.daowei-adopt-btn {
+  border: 1px solid var(--blue-300); border-radius: 6px; background: #fff;
+  color: var(--blue-700); padding: 5px 9px; font-size: 11px; cursor: pointer;
+}
+.daowei-adopt-btn:hover:not(:disabled) { background: var(--blue-50); }
+.daowei-adopt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.daowei-dimensions { border-top: 1px solid var(--slate-200); }
+.daowei-dimension-row {
+  padding: 11px 0; border-bottom: 1px solid var(--slate-200);
+}
+.daowei-dimension-main {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px;
+}
+.daowei-dimension-label { font-size: 12px; font-weight: 650; color: var(--slate-800); }
+.daowei-suggestion {
+  font-size: 10px; padding: 2px 6px; border-radius: 6px; white-space: nowrap;
+  background: var(--slate-100); color: var(--slate-600);
+}
+.daowei-suggestion.suggest-in_place { background: #ecfdf5; color: #047857; }
+.daowei-suggestion.suggest-not_in_place { background: #fef2f2; color: #b91c1c; }
+.daowei-suggestion.suggest-pending_evidence { background: #fffbeb; color: #92400e; }
+.daowei-segmented, .daowei-level-options {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--slate-200); border-radius: 6px; overflow: hidden;
+}
+.daowei-segmented button, .daowei-level-options button {
+  min-width: 0; min-height: 32px; border: 0; border-right: 1px solid var(--slate-200);
+  background: #fff; color: var(--slate-600); font-size: 11px; cursor: pointer;
+}
+.daowei-segmented button:last-child, .daowei-level-options button:last-child { border-right: 0; }
+.daowei-segmented button.active, .daowei-level-options button.active {
+  background: var(--blue-600); color: #fff; font-weight: 700;
+}
+.daowei-segmented button:disabled, .daowei-level-options button:disabled {
+  cursor: not-allowed; color: var(--slate-400); background: var(--slate-50);
+}
+.daowei-basis { margin-top: 6px; font-size: 10px; line-height: 1.5; color: var(--slate-500); }
+.daowei-mismatch { margin-top: 6px; font-size: 10px; line-height: 1.5; color: #92400e; }
+.daowei-level-step { margin-top: 15px; }
+.daowei-level-box { padding: 10px; background: var(--slate-50); border: 1px solid var(--slate-200); border-radius: 6px; }
+.daowei-level-copy { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.daowei-level-copy strong { font-size: 12px; color: var(--slate-800); }
+.daowei-level-copy span, .daowei-level-note { font-size: 10px; line-height: 1.5; color: var(--slate-500); }
+.daowei-level-note { margin-top: 7px; }
+.daowei-gate { margin-top: 8px; padding: 7px 8px; border-radius: 6px; font-size: 10px; line-height: 1.5; }
+.daowei-gate-passed { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
+.daowei-gate-failed { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.daowei-gate-incomplete { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 
 .field-list {
   display: flex;
@@ -1198,6 +1682,11 @@ function resetChat() {
   background: var(--green-50);
   border: 1px solid var(--green-200);
   border-radius: var(--radius-sm);
+}
+.structure-pending {
+  margin-bottom: 8px; padding: 8px 10px; border: 1px solid var(--yellow-200);
+  border-radius: 6px; background: var(--yellow-50); color: var(--yellow-800);
+  font-size: 12px; line-height: 1.55;
 }
 .pending-intro {
   font-size: 12px;
@@ -1482,5 +1971,12 @@ function resetChat() {
     border-color: #86efac;
     color: #166534;
   }
+
+  .group-members { grid-template-columns: 1fr; }
+  .po-row, .daowei-dimension-row.compact { grid-template-columns: 1fr; }
+  .group-confirm-row, .unit-level-row, .unit-check-title { align-items: flex-start; flex-direction: column; }
+  .mini-segmented { width: 100%; }
+  .mini-segmented button { flex: 1; }
+  .final-unit-row { align-items: flex-start; flex-direction: column; }
 }
 </style>

@@ -1,0 +1,929 @@
+{
+  "version": "2026-07-19",
+  "source_document": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+  "categories": [
+    {
+      "id": "process",
+      "label": "基础过程材料",
+      "description": "依据《ICT项目全流程控制权角色职责和佐证材料》形成的日常过程留痕。"
+    },
+    {
+      "id": "conditional",
+      "label": "条件性合规材料",
+      "description": "仅在特定客户、采购、关联关系、异地实施或其他业务条件出现时准备。"
+    },
+    {
+      "id": "financial",
+      "label": "财务列收材料",
+      "description": "用于金额、利润率、控制权、收入确认及全额/净额口径复核。"
+    },
+    {
+      "id": "exception",
+      "label": "异常补正材料",
+      "description": "仅在异常、偏差、特批或人工核查命中时补充，不属于所有项目的基础必备材料。"
+    }
+  ],
+  "materials": [
+    {
+      "id": "MAT-PROC-R01",
+      "name": "角色1 商机挖掘与客情统筹佐证材料包",
+      "category": "process",
+      "purpose": "证明电信主导客户关系、需求挖掘和商机转化。",
+      "evidence_strength": "core",
+      "stage": "客情",
+      "roles": [
+        "1"
+      ],
+      "components": [
+        "客户拜访记录表",
+        "商机录入记录",
+        "重要会议纪要（如有）"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "客户沟通往来记录",
+        "BPM商机信息截图",
+        "BPM商机及客户认证截图",
+        "客户沟通记录",
+        "BPM商机客户信息截图（含统一社会信用代码）"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R03",
+      "name": "角色3 解决方案设计佐证材料包",
+      "category": "process",
+      "purpose": "证明电信承担需求对接与售前整体方案设计第一责任。",
+      "evidence_strength": "core",
+      "stage": "售前解决方案",
+      "roles": [
+        "3"
+      ],
+      "components": [
+        "全流程需求沟通记录、招标答疑或招标文件",
+        "售前整体解决方案各迭代版本及最终正式方案",
+        "向客户交付方案或投标递交的全流程记录"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "客户需求说明文件",
+        "方案设计文档",
+        "方案设计文档（含拓扑图）"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R04",
+      "name": "角色4 解决方案整合确定佐证材料包",
+      "category": "process",
+      "purpose": "证明电信主导第三方方案设计并拥有最终复核决策权。",
+      "evidence_strength": "core",
+      "stage": "售前解决方案",
+      "roles": [
+        "4"
+      ],
+      "components": [
+        "需求沟通记录、招标答疑或招标文件",
+        "电信侧客户需求分析及对第三方的需求文档",
+        "售前整合方案各迭代版本及最终正式方案",
+        "方案整合、复核、会审、整改及决策记录",
+        "向客户交付方案的全流程记录"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "中台把关/评审记录",
+        "服务方案及评审记录"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R06",
+      "name": "角色6 应标与签约主导佐证材料包",
+      "category": "process",
+      "purpose": "证明电信统筹投标、报价、商务谈判和合同签约。",
+      "evidence_strength": "core",
+      "stage": "谈判应标",
+      "roles": [
+        "6"
+      ],
+      "components": [
+        "招标文件、投标应答文件及中标通知书（公开招标适用）",
+        "双方签章的总包集成合同及补充协议"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "投标文件及资质证书",
+        "招标公告截图（含发布平台、招标时间、招标范围）",
+        "电信应标文件（技术方案+商务方案+授权书）",
+        "中标公告/中标通知书"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R07",
+      "name": "角色7 软硬件采购决策佐证材料包",
+      "category": "process",
+      "purpose": "证明电信自主决定采购方式、供应商、选型和定价。",
+      "evidence_strength": "core",
+      "stage": "采购管理",
+      "roles": [
+        "7"
+      ],
+      "components": [
+        "采购结果审批单或采购方式确认纪要",
+        "供应商评选、定商、选型、定价及单一来源论证材料",
+        "采购合同或订单"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "软硬件采购决策佐证（采购结果+供应商评选定商支撑+采购合同/订单）",
+        "标前决策会记录",
+        "标前决策会会议纪要",
+        "供应商遴选比选记录（如有）"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R09",
+      "name": "角色9 全流程交付管理与质量责任佐证材料包",
+      "category": "process",
+      "purpose": "证明电信承担项目全流程统筹、质量监督、整改闭环和验收兜底责任。",
+      "evidence_strength": "core",
+      "stage": "交付管理",
+      "roles": [
+        "9"
+      ],
+      "components": [
+        "客户确认的项目实施计划书或交付实施详细方案",
+        "进度督办台账及质量检查复核记录",
+        "整改通知书及闭环确认记录（如有）",
+        "设备到货、现场施工及验收现场佐证照片（如有）",
+        "客户签章的阶段性验收、竣工验收报告或交付确认单"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "项目实施方案（必做）",
+        "项目交付报告（必做）",
+        "项目终验报告（必做）",
+        "项目管理记录（周报/月报）",
+        "协调会议纪要",
+        "问题纪要",
+        "全流程交付管理佐证（监理联系单/通知回复单+客户签章初验/终验报告）",
+        "后向供应商考核/培训记录",
+        "客户验收报告/签收单",
+        "项目初验报告",
+        "月度例会纪要及供应商考核记录",
+        "供应商验收单及签收记录",
+        "供应商验收签收单及例会纪要"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R10",
+      "name": "角色10 交付实施方案设计佐证材料包",
+      "category": "process",
+      "purpose": "证明电信完成可直接指导技术落地的分项实施设计。",
+      "evidence_strength": "core",
+      "stage": "交付实施方案",
+      "roles": [
+        "10"
+      ],
+      "components": [
+        "详细分项实施设计方案（含核心技术参数和软硬件部署方案）",
+        "客户签章的详细方案确认单或甲方方案会审记录"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "深化设计方案"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R11",
+      "name": "角色11 交付实施方案确定及责任佐证材料包",
+      "category": "process",
+      "purpose": "证明电信拥有分项技术方案最终复核、审定和否决权。",
+      "evidence_strength": "core",
+      "stage": "交付实施方案",
+      "roles": [
+        "11"
+      ],
+      "components": [
+        "后向采购招标文件或电信侧需求文档",
+        "详细施工组织设计方案",
+        "详细施工组织设计方案复核记录及整改意见",
+        "整改跟踪台账与闭环确认记录（如有）",
+        "详细方案最终复核意见或第三方方案会审记录",
+        "客户签章的详细方案确认单或甲方方案会审记录"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）"
+    },
+    {
+      "id": "MAT-PROC-R13",
+      "name": "角色13 项目实施、技术开发与联调佐证材料包",
+      "category": "process",
+      "purpose": "证明电信亲自开展实施、开发、集成联调和测试实操。",
+      "evidence_strength": "core",
+      "stage": "项目实施研发联调",
+      "roles": [
+        "13"
+      ],
+      "components": [
+        "现场施工记录或施工日志",
+        "安装调试报告",
+        "代码截图、开发文档、开发台账或技术交底记录",
+        "联调测试记录或技术实施工作日志",
+        "系统运行截图（如有）"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "项目实施总结",
+        "售中实施佐证材料（现场记录/调试报告/联调记录）"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R14",
+      "name": "角色14 项目实施、技术开发主导与联调责任佐证材料包",
+      "category": "process",
+      "purpose": "证明电信复核实施开发质量、亲自联调并承担质量兜底责任。",
+      "evidence_strength": "core",
+      "stage": "项目实施研发联调",
+      "roles": [
+        "14"
+      ],
+      "components": [
+        "客户确认的项目实施计划书或交付实施详细方案",
+        "实施或技术开发成果复核记录",
+        "整改通知及跟踪台账（如有）",
+        "联调记录或测试报告",
+        "系统运行截图（如有）"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）"
+    },
+    {
+      "id": "MAT-PROC-R16",
+      "name": "角色16 到货验收及设备管理佐证材料包",
+      "category": "process",
+      "purpose": "证明电信管控设备签收、存储、领用、核销及损耗风险。",
+      "evidence_strength": "core",
+      "stage": "设备管理",
+      "roles": [
+        "16"
+      ],
+      "components": [
+        "设备到货签收单或验收单",
+        "设备领用台账（适用于设备较多、分批出库）",
+        "库存盘点数据表（如有）",
+        "客户设备签收单或验收单"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "设备到货检验材料（厂检/开箱/合格证/入网证）",
+        "设备签收单/验收单",
+        "仓储出入库记录"
+      ]
+    },
+    {
+      "id": "MAT-PROC-R18",
+      "name": "角色18 运维履约责任佐证材料包",
+      "category": "process",
+      "purpose": "证明电信直接履行运维义务并承担售后运维兜底责任。",
+      "evidence_strength": "core",
+      "stage": "运维",
+      "roles": [
+        "18"
+      ],
+      "components": [
+        "运维服务合同或协议",
+        "运维巡检记录",
+        "故障报修工单（如有）",
+        "运维报告或客户运维验收记录"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）",
+      "legacy_names": [
+        "售后运维责任人名单"
+      ]
+    },
+    {
+      "id": "MAT-PROC-GRP-SOLUTION",
+      "name": "方案主导二选一佐证材料包",
+      "category": "process",
+      "purpose": "根据实际分工准备角色3或角色4的材料，不要求两套同时具备。",
+      "evidence_strength": "core",
+      "stage": "售前解决方案",
+      "roles": [
+        "3",
+        "4"
+      ],
+      "components": [
+        "角色3解决方案设计材料包，或角色4解决方案整合确定材料包"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）"
+    },
+    {
+      "id": "MAT-PROC-GRP-DELIVERY",
+      "name": "交付实施方案二选一佐证材料包",
+      "category": "process",
+      "purpose": "根据实际分工准备角色10或角色11的材料，不要求两套同时具备。",
+      "evidence_strength": "core",
+      "stage": "交付实施方案",
+      "roles": [
+        "10",
+        "11"
+      ],
+      "components": [
+        "角色10交付实施方案设计材料包，或角色11方案确定及责任材料包"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）"
+    },
+    {
+      "id": "MAT-PROC-GRP-IMPLEMENT",
+      "name": "实施开发二选一佐证材料包",
+      "category": "process",
+      "purpose": "根据实际分工准备角色13或角色14的材料，不要求两套同时具备。",
+      "evidence_strength": "core",
+      "stage": "项目实施研发联调",
+      "roles": [
+        "13",
+        "14"
+      ],
+      "components": [
+        "角色13实施开发联调材料包，或角色14主导复核与联调责任材料包"
+      ],
+      "source": "附件2 ICT项目全流程控制权角色职责和佐证材料（2026-07-18更新版）"
+    },
+    {
+      "id": "MAT-PROC-STAFF-001",
+      "name": "电信自有人员投入辅助材料包",
+      "category": "process",
+      "purpose": "辅助证明电信人员实际参与项目，不单独证明控制权。",
+      "evidence_strength": "supporting",
+      "components": [
+        "驻场人员名单或驻场协议",
+        "出勤、考勤或打卡记录",
+        "出差审批记录及差旅票据"
+      ],
+      "legacy_names": [
+        "驻场人员名单",
+        "出差审批记录及差旅票据",
+        "现场考勤/打卡记录",
+        "自有人员出勤表/驻场协议",
+        "自有人员出勤记录及项目经理任命文件"
+      ]
+    },
+    {
+      "id": "MAT-PROC-MANAGER-001",
+      "name": "电信侧项目经理授权辅助材料",
+      "category": "process",
+      "purpose": "辅助证明项目管理职责已明确，不单独证明实际履责。",
+      "evidence_strength": "supporting",
+      "components": [
+        "项目经理任命文件",
+        "项目经理签发记录"
+      ],
+      "legacy_names": [
+        "电信侧项目经理任命文件",
+        "电信项目经理签发记录"
+      ]
+    },
+    {
+      "id": "MAT-COND-PHOTO-001",
+      "name": "现场照片辅助材料",
+      "category": "conditional",
+      "purpose": "辅助证明客户场景或人员曾在现场，不单独证明主导控制权。",
+      "evidence_strength": "supporting",
+      "components": [
+        "客户现场拜访照片",
+        "带时间和地点信息的实施现场照片"
+      ],
+      "legacy_names": [
+        "客户现场拜访照片",
+        "现场实施照片（含时间戳）"
+      ]
+    },
+    {
+      "id": "MAT-COND-REL-001",
+      "name": "前后向关联关系核查及说明材料包",
+      "category": "conditional",
+      "purpose": "核实并披露前后向关联关系、控制关系及历史交易。",
+      "evidence_strength": "core",
+      "components": [
+        "关联关系查询或比对报告",
+        "关联关系说明",
+        "历史交易记录（适用时）"
+      ],
+      "legacy_names": [
+        "天眼查关联关系核查报告",
+        "关联关系核查报告",
+        "前后向关联关系比对报告",
+        "关联关系说明及比对报告"
+      ]
+    },
+    {
+      "id": "MAT-COND-VALUE-001",
+      "name": "电信价值贡献及增值服务成果材料包",
+      "category": "conditional",
+      "purpose": "证明电信在交易中提供可识别、可复核的实质性价值贡献。",
+      "evidence_strength": "core",
+      "components": [
+        "自有产品或能力融入清单",
+        "增值服务工作成果",
+        "价值贡献说明"
+      ],
+      "legacy_names": [
+        "电信自有服务增值证明",
+        "电信自有产品融入清单",
+        "电信增值服务工作成果",
+        "电信增值服务证明",
+        "电信自有增值服务证明",
+        "电信价值贡献说明"
+      ]
+    },
+    {
+      "id": "MAT-COND-SPECIAL-PROJECT-001",
+      "name": "项目合作方特定企业标签查询记录",
+      "category": "conditional",
+      "purpose": "确认项目合作方是否属于特定企业范围。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "BPM特定企业标签查询截图"
+      ]
+    },
+    {
+      "id": "MAT-COND-SPECIAL-BIDDER-001",
+      "name": "购买标书企业特定企业标签查询记录",
+      "category": "conditional",
+      "purpose": "确认购买标书企业是否属于特定企业范围。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "BPM特定企业标签查询截图"
+      ]
+    },
+    {
+      "id": "MAT-COND-WHITELIST-001",
+      "name": "集团白名单归属依据",
+      "category": "conditional",
+      "purpose": "证明设备或成品软件属于适用版本的集团白名单。",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-CUSTOMER-001",
+      "name": "客户属于全额准入范围的依据",
+      "category": "conditional",
+      "purpose": "核实客户主体和客户类型满足相应全额准入范围。",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-COST-001",
+      "name": "项目成本明细及自有、外采拆分表",
+      "category": "financial",
+      "purpose": "核实项目成本、利润来源及自有与外采投入。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "成本明细表",
+        "成本明细表（区分自有/外采）"
+      ]
+    },
+    {
+      "id": "MAT-FIN-NET-001",
+      "name": "差额列收计算说明（含税口径）",
+      "category": "financial",
+      "purpose": "说明净额列收金额、含税收入和含税成本的计算依据。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "差额列收计算说明",
+        "差额列收计算说明（含税）"
+      ]
+    },
+    {
+      "id": "MAT-FIN-RESP-001",
+      "name": "合同中电信责任及风险承担条款",
+      "category": "financial",
+      "purpose": "证明电信对客户承担主要履约责任及相应风险。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "合同中风险承担条款",
+        "合同中电信责任条款",
+        "合同中电信责任条款说明"
+      ]
+    },
+    {
+      "id": "MAT-FIN-CONTROL-001",
+      "name": "R08控制权核查表",
+      "category": "financial",
+      "purpose": "记录主要责任人、代理人及控制权四要件的逐项核查结果。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "附件1 六维度控制权核查表"
+      ]
+    },
+    {
+      "id": "MAT-FIN-PRICE-001",
+      "name": "前后向定价决策及公允性记录",
+      "category": "financial",
+      "purpose": "证明电信具有定价自主权并核实交易价格公允。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "定价决策记录",
+        "定价公允性说明"
+      ]
+    },
+    {
+      "id": "MAT-FIN-AMOUNT-001",
+      "name": "项目收支明细及核算单元金额表",
+      "category": "financial",
+      "purpose": "核实整个BPM项目金额和27号文相关占比。",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-MARGIN-001",
+      "name": "项目整体税前利润率测算表",
+      "category": "financial",
+      "purpose": "核实按填报口径计算的项目整体税前利润率。",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-PAYMENT-001",
+      "name": "前向合同付款条款及节点说明",
+      "category": "financial",
+      "purpose": "核实付款节点是否符合全额准入要求。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "合同付款条款"
+      ]
+    },
+    {
+      "id": "MAT-FIN-OWNERSHIP-001",
+      "name": "产权转移及三流一致性材料包",
+      "category": "financial",
+      "purpose": "证明产权转移、货物流、资金流和发票流相互一致。",
+      "evidence_strength": "core",
+      "components": [
+        "可追溯的货权转移轨迹或第三方物流签收单",
+        "收付款流水与合同对手方一致性核查",
+        "发票开具方、接收方与合同双方一致性核查"
+      ],
+      "legacy_names": [
+        "可追溯的货权转移轨迹/第三方物流签收单",
+        "收付款流水与合同对手方一致性核查",
+        "发票开具方/接收方与合同双方一致性核查"
+      ]
+    },
+    {
+      "id": "MAT-FIN-CAPITAL-001",
+      "name": "资本投资模式收投比测算及审批依据",
+      "category": "financial",
+      "purpose": "供线下投资流程核验收投比及相应审批。",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-PREPAY-001",
+      "name": "预付款一事一议审批记录（如获批）",
+      "category": "exception",
+      "purpose": "证明预付款事项已按要求履行特批流程。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "总经办一事一议审批记录（如获批）"
+      ]
+    },
+    {
+      "id": "MAT-EXC-ADVANCE-001",
+      "name": "垫资一事一议审批记录（如获批）",
+      "category": "exception",
+      "purpose": "证明垫资事项已按要求履行特批流程。",
+      "evidence_strength": "core",
+      "legacy_names": [
+        "总经办一事一议审批记录（如获批）"
+      ]
+    },
+    {
+      "id": "MAT-PROC-X001",
+      "name": "前后向合同对比分析",
+      "category": "conditional",
+      "purpose": "证明合同内容存在差异",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X002",
+      "name": "项目商业实质说明",
+      "category": "conditional",
+      "purpose": "证明具备真实商业目的",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X003",
+      "name": "启动会纪要",
+      "category": "process",
+      "purpose": "证明项目正式启动，商机录入与实施有效衔接",
+      "evidence_strength": "supporting"
+    },
+    {
+      "id": "MAT-PROC-X004",
+      "name": "项目交接报告",
+      "category": "process",
+      "purpose": "证明从实施到运维的交接完成，支撑六到位·运维自主",
+      "evidence_strength": "supporting"
+    },
+    {
+      "id": "MAT-PROC-X005",
+      "name": "项目变更单（涉及变更时，必做）",
+      "category": "exception",
+      "purpose": "变更发生时须留存，证明变更经过合规审批，防止审计认定合同造假",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X006",
+      "name": "后向供应商分包合同",
+      "category": "conditional",
+      "purpose": "证明供应商为分包角色",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X007",
+      "name": "项目运营单元记录表（涉及外采时，必做）",
+      "category": "conditional",
+      "purpose": "涉及外采时须留存，证明供应商采购全程合规记录",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-X002",
+      "name": "风险预警（如有）",
+      "category": "exception",
+      "purpose": "证明电信承担了项目风险管控责任（C2、C4）",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-X003",
+      "name": "延期说明（如涉及延期，必需上传）",
+      "category": "exception",
+      "purpose": "延期时须留存，说明延期原因及审批，防止审计质疑交付能力",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X008",
+      "name": "项目实施地点说明",
+      "category": "conditional",
+      "purpose": "明确交付地点",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X009",
+      "name": "电信当地实施能力证明",
+      "category": "conditional",
+      "purpose": "证明具备异地实施条件",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X010",
+      "name": "采购非甲指证明（前向招标/合同不唯一指向特定品牌/型号/供应商）",
+      "category": "conditional",
+      "purpose": "证明采购方式自主、非甲方单一来源指定",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X001",
+      "name": "历史交易记录查询",
+      "category": "conditional",
+      "purpose": "核实是否存在反向交易",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-X004",
+      "name": "提级审批记录",
+      "category": "exception",
+      "purpose": "证明已按流程审批",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X002",
+      "name": "商机管理员审核记录",
+      "category": "conditional",
+      "purpose": "证明业务真实性已审核",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X003",
+      "name": "最终用户需求确认函",
+      "category": "conditional",
+      "purpose": "核实最终用户的真实需求",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X004",
+      "name": "业务流转说明",
+      "category": "conditional",
+      "purpose": "说明中间环节的商业合理性",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X003",
+      "name": "收入确认财务凭证",
+      "category": "financial",
+      "purpose": "证明确认时点合规",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X011",
+      "name": "项目试运行报告",
+      "category": "process",
+      "purpose": "证明项目经过试运行验证，支撑时点法收入确认的合理性",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X004",
+      "name": "合同约定服务周期说明",
+      "category": "financial",
+      "purpose": "证明收入确认周期依据",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X005",
+      "name": "按月确认收入财务台账",
+      "category": "financial",
+      "purpose": "证明按进度确认",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X006",
+      "name": "客户对账单/月度工作量确认单",
+      "category": "financial",
+      "purpose": "证明服务实际交付",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X007",
+      "name": "收入确认时间线与合同期对比",
+      "category": "financial",
+      "purpose": "核实是否提前列收",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X008",
+      "name": "财务调整记录",
+      "category": "exception",
+      "purpose": "提前列收须提供调整证明",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X009",
+      "name": "验收报告日期与收入确认日期对比",
+      "category": "financial",
+      "purpose": "核实是否滞后列收",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X010",
+      "name": "财务追溯调整记录",
+      "category": "exception",
+      "purpose": "滞后须提供调整证明",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X011",
+      "name": "财务审核意见",
+      "category": "financial",
+      "purpose": "确认差额列收合规",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X012",
+      "name": "财务负责人审批意见（如坚持全额）",
+      "category": "exception",
+      "purpose": "特批全额的书面依据",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X012",
+      "name": "合同中服务与硬件清单",
+      "category": "conditional",
+      "purpose": "区分硬件与服务内容",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X013",
+      "name": "实际交付清单",
+      "category": "process",
+      "purpose": "核实实际交付物构成",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X013",
+      "name": "财务分类明细",
+      "category": "financial",
+      "purpose": "证明收入分类正确",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X014",
+      "name": "合同中服务范围说明",
+      "category": "conditional",
+      "purpose": "区分服务与施工",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X005",
+      "name": "施工内容明细及金额",
+      "category": "financial",
+      "purpose": "核实施工占比",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X014",
+      "name": "财务分类确认记录",
+      "category": "financial",
+      "purpose": "证明分类正确",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X006",
+      "name": "物流签收单据",
+      "category": "conditional",
+      "purpose": "证明物流路径",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X015",
+      "name": "三方物流合同",
+      "category": "conditional",
+      "purpose": "证明物流安排合规",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-COND-X007",
+      "name": "单一来源采购说明书",
+      "category": "conditional",
+      "purpose": "采购合规依据",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-X005",
+      "name": "上级审批文件",
+      "category": "exception",
+      "purpose": "证明审批流程合规",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-X006",
+      "name": "领导知悉/阅办记录",
+      "category": "exception",
+      "purpose": "证明已按流程报备",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-FIN-X016",
+      "name": "资金支付时间线",
+      "category": "financial",
+      "purpose": "核实是否存在垫资",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X016",
+      "name": "自有人员与外包人员分工说明",
+      "category": "process",
+      "purpose": "证明混合交付中电信的主导地位",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X017",
+      "name": "电信独立编制的前向验收报告",
+      "category": "process",
+      "purpose": "证明电信对客户验收承担独立责任，非直接转交供应商材料",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X018",
+      "name": "前后向验收报告对比说明",
+      "category": "conditional",
+      "purpose": "证明两份验收材料存在实质性差异（如电信增加的核验项、客户特有要求等）",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X019",
+      "name": "后向验收→前向验收时间线说明",
+      "category": "conditional",
+      "purpose": "证明验收时序合理，杜绝倒签",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X020",
+      "name": "客户验收沟通记录（邮件/会议纪要）",
+      "category": "process",
+      "purpose": "证明电信参与客户验收过程，承担第一服务界面责任",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X021",
+      "name": "前向合同首页及签约方信息",
+      "category": "conditional",
+      "purpose": "证明实际签约客户主体",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-PROC-X022",
+      "name": "客户主体一致性核对说明",
+      "category": "conditional",
+      "purpose": "证明已完成商机/合同客户校验",
+      "evidence_strength": "core"
+    },
+    {
+      "id": "MAT-EXC-X007",
+      "name": "不一致情形的合理性说明及商机管理员审核记录（如适用）",
+      "category": "exception",
+      "purpose": "证明不一致情形已按流程报备审核",
+      "evidence_strength": "core"
+    }
+  ]
+}

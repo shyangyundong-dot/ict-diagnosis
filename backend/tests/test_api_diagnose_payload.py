@@ -13,11 +13,12 @@ from routers import diagnosis as router_mod
 REQUIRED_KEYS_IN_GET_DIAGNOSIS = {
     "diagnosis_id", "bpm_id", "overall_risk", "overall_risk_label",
     "triggered_rules", "tips", "audit_checklist", "manual_check_rules",
-    "rule_version", "created_at", "segments", "ai_enriched",
+    "rule_version", "material_version", "created_at", "segments", "ai_enriched",
     "is_mixed_project",
-    "accounting_units", "suppressed_rules", "hard_to_service",
-    # 下方三个是 ADR 0002/0003/0004 关键板块，曾因漏传导致 SPA 报告静默缺失
-    "unit_warning", "control_roles_check", "listing_mode",
+    "accounting_units", "accounting_structure", "suppressed_rules", "hard_to_service",
+    # 下方四个是 ADR 0002/0003/0004 关键板块，曾因漏传导致 SPA 报告静默缺失
+    "unit_warning", "control_roles_check", "six_daowei_check", "six_daowei_checks",
+    "r08_checks", "listing_mode", "advisory_only",
 }
 
 
@@ -38,5 +39,6 @@ def test_confirm_returns_all_report_keys():
     """/api/confirm 返回体（confirm_and_diagnose）同样应覆盖关键键，便于客户端直接用而非二次拉。"""
     src = _source_of(router_mod.confirm_and_diagnose)
     # confirm 必须至少含 ADR 0002/0003 的两个关键板块
-    for k in ("unit_warning", "control_roles_check", "listing_mode", "accounting_units", "hard_to_service"):
+    for k in ("material_version", "unit_warning", "control_roles_check", "six_daowei_check", "six_daowei_checks", "r08_checks",
+              "listing_mode", "accounting_units", "accounting_structure", "hard_to_service", "advisory_only"):
         assert f'"{k}"' in src, f"/api/confirm 返回体遗漏 {k}"

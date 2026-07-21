@@ -18,6 +18,12 @@ def _esc(value) -> str:
     return html.escape(str(value))
 
 
+def _material_ref_label(material: dict) -> str:
+    """新诊断显示稳定材料编号；旧记录没有编号时保留名称可读性。"""
+    material_id = material.get("material_id") or "历史材料"
+    return f"{_esc(material_id)} · {_esc(material.get('item'))}"
+
+
 RISK_CONFIG = {
     "high":   {"label": "高风险", "color": "#dc2626", "bg": "#fef2f2", "border": "#fca5a5", "icon": "🔴"},
     "medium": {"label": "中风险", "color": "#d97706", "bg": "#fffbeb", "border": "#fcd34d", "icon": "🟡"},
@@ -60,18 +66,10 @@ def _render_rule_card(
             f"</div>"
         )
 
-    # 审计材料（版式与条款引用框一致：浅底 + 左竖线 + 行内 ☐ 对齐）
+    # 规则卡只保留材料编号引用，具体名称、组成和用途统一放在报告末尾主清单。
     mats_html = ""
     for mat in rule.get("audit_materials", []):
-        mats_html += (
-            f'<div class="audit-item">'
-            f'<span class="audit-check">☐</span>'
-            f'<div class="audit-item-main">'
-            f'<strong>{_esc(mat["item"])}</strong>'
-            f'<span class="audit-sep"> — </span>'
-            f'<span class="audit-purpose">{_esc(mat["purpose"])}</span>'
-            f"</div></div>"
-        )
+        mats_html += f'<span class="material-ref">{_material_ref_label(mat)}</span>'
 
     # AI个性化分析（优先使用，没有则降级到标准文本）
     risk_desc = _esc(rule.get("ai_risk_analysis") or rule.get("risk_description", ""))
@@ -110,7 +108,7 @@ def _render_rule_card(
             <div class="section-title">🚀 模式优化方向</div>
             <div class="section-body section-body-pre">{optimization}</div>
         </div>
-        {f'<div class="rule-section audit-materials-section"><div class="section-title">📁 本风险点相关审计材料</div><div class="section-body"><div class="audit-mats">{mats_html}</div></div></div>' if mats_html else ""}
+        {f'<div class="rule-section audit-materials-section"><div class="section-title">关联材料编号（详见统一清单）</div><div class="section-body"><div class="material-refs">{mats_html}</div></div></div>' if mats_html else ""}
     </div>'''
 
 
@@ -247,6 +245,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
         </div>"""
 
     rule_ver = result.get("rule_version", "v1.1")
+    material_ver = result.get("material_version", "历史目录")
     _disclaimer_tail = (
         f"<br>本结论基于规则版本 <strong>{rule_ver}</strong> 生成。 AI个性化分析由 DeepSeek V3 生成，仅供参考。"
         if show_ai
@@ -256,29 +255,28 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
         "本工具诊断结论为风险等级提示，仅供参考，不作为项目列收的正式依据，不替代BPM审批流程。"
         "工具基于用户填报信息进行判断，信息失真将导致诊断结论失效。条款原文库存在更新时滞，具体认定以集团/省公司最新文件为准。"
         + _disclaimer_tail
+        + f" 材料目录版本：<strong>{_esc(material_ver)}</strong>。"
     )
 
-    # 按风险等级分组渲染审计清单（建议一+二+三）
+    # 按统一材料目录的四类分组。风险等级保留为材料行元数据，不再决定目录结构。
     def _render_checklist_html(checklist: list) -> str:
         if not checklist:
             return '<p style="color:#94a3b8">无需特别准备，保持常规过程留痕即可。</p>'
         groups = [
-            ("high",   "🔴 高风险相关材料（必须准备）",   "#fef2f2", "#fca5a5", "#991b1b"),
-            ("medium", "🟡 中风险相关材料（建议准备）",   "#fffbeb", "#fcd34d", "#92400e"),
-            ("low",    "🟢 低风险相关材料（视情况准备）", "#f0fdf4", "#86efac", "#166534"),
-            ("tip",    "📋 操作提示相关材料",             "#eff6ff", "#93c5fd", "#1e40af"),
+            ("process", "基础过程材料", "项目实施过程中持续形成，角色配合项不单独证明控制权。", "#f0fdf4", "#86efac", "#166534"),
+            ("conditional", "条件性合规材料", "仅在对应客户、采购、关联关系或业务条件出现时准备。", "#eff6ff", "#93c5fd", "#1e40af"),
+            ("financial", "财务列收材料", "用于金额、利润率、控制权和收入确认口径复核。", "#f8fafc", "#cbd5e1", "#334155"),
+            ("exception", "异常补正材料", "仅在异常、偏差、特批或人工核查命中时补充。", "#fff7ed", "#fdba74", "#9a3412"),
         ]
         html = ""
-        for level_key, level_label, bg, border, text_color in groups:
-            items = [m for m in checklist if m.get("risk_level") == level_key]
+        for category, label, description, bg, border, text_color in groups:
+            items = [m for m in checklist if m.get("category", "conditional") == category]
             if not items:
                 continue
             rows = ""
             for m in items:
-                # 合并用途（多条）
                 purposes = m.get("purposes") or ([m["purpose"]] if m.get("purpose") else [])
                 purpose_html = "；".join(_esc(p) for p in purposes)
-                # 来源规则标签
                 rule_ids = m.get("rule_ids", [])
                 rule_names = m.get("rule_names", [])
                 source_tags = "".join(
@@ -286,18 +284,36 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
                     f'{_esc(rid)}</span>'
                     for i, rid in enumerate(rule_ids)
                 )
+                material_id = _esc(m.get("material_id", ""))
+                strength = m.get("evidence_strength", "core")
+                strength_badge = (
+                    '<span class="material-strength supporting">辅助证据，不单独证明控制权</span>'
+                    if strength == "supporting" else '<span class="material-strength core">核心材料</span>'
+                )
+                units = "、".join(_esc(name) for name in m.get("unit_names", []))
+                units_html = f'<div class="material-units">适用核算单元：{units}</div>' if units else ""
+                components = m.get("components") or []
+                components_html = (
+                    '<ul class="material-components">'
+                    + "".join(f'<li>{_esc(component)}</li>' for component in components)
+                    + '</ul>'
+                    if components else ""
+                )
                 rows += (
                     f'<div class="checklist-item">'
                     f'<span class="mat-checkbox">☐</span>'
                     f'<div class="cl-item-body">'
-                    f'<div class="cl-item-top"><strong>{_esc(m["item"])}</strong>'
+                    f'<div class="cl-item-top"><span class="material-id">{material_id or "历史材料"}</span>'
+                    f'<strong>{_esc(m["item"])}</strong>{strength_badge}'
                     f'<span class="cl-sources">{source_tags}</span></div>'
                     f'<div class="mat-purpose">{purpose_html}</div>'
+                    f'{units_html}{components_html}'
                     f'</div></div>'
                 )
             html += (
                 f'<div class="cl-group" style="border-color:{border};background:{bg}">'
-                f'<div class="cl-group-title" style="color:{text_color}">{level_label}</div>'
+                f'<div class="cl-group-title" style="color:{text_color}">{label}'
+                f'<span class="cl-group-desc">{description}</span></div>'
                 f'{rows}'
                 f'</div>'
             )
@@ -311,19 +327,11 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     for rule in manual_check_rules:
         mats_html = ""
         for mat in rule.get("audit_materials", []):
-            mats_html += (
-                f'<div class="audit-item">'
-                f'<span class="audit-check">☐</span>'
-                f'<div class="audit-item-main">'
-                f'<strong>{_esc(mat["item"])}</strong>'
-                f'<span class="audit-sep"> — </span>'
-                f'<span class="audit-purpose">{_esc(mat["purpose"])}</span>'
-                f"</div></div>"
-            )
+            mats_html += f'<span class="material-ref">{_material_ref_label(mat)}</span>'
         mats_block = (
             f'<div class="rule-section audit-materials-section">'
-            f'<div class="section-title">📁 核查所需材料</div>'
-            f'<div class="section-body"><div class="audit-mats">{mats_html}</div></div>'
+            f'<div class="section-title">关联材料编号（仅命中时准备）</div>'
+            f'<div class="section-body"><div class="material-refs">{mats_html}</div></div>'
             f'</div>'
         ) if mats_html else ""
         manual_cards_html += f'''
@@ -354,7 +362,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     suppressed_rules = result.get("suppressed_rules", []) or []
     excluded_units = [u for u in accounting_units if u.get("listed") is False]
     units_section_html = ""
-    if excluded_units:
+    if excluded_units and not result.get("accounting_structure"):
         rows = ""
         for u in excluded_units:
             amt = u.get("amount")
@@ -383,11 +391,19 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
         cards = ""
         for f in hard_to_service:
             sig_html = "".join(f'<span class="hts-signal">{_esc(s)}</span>' for s in f.get("signals", []))
-            ev_html = "".join(
-                f'<div class="audit-item"><span class="audit-check">☐</span>'
-                f'<div class="audit-item-main"><strong>{_esc(e)}</strong></div></div>'
-                for e in f.get("required_evidence", [])
-            )
+            evidence_names = f.get("required_evidence", [])
+            evidence_ids = f.get("required_material_ids", [])
+            if evidence_ids:
+                ev_html = "".join(
+                    f'<span class="material-ref">{_esc(material_id)} · '
+                    f'{_esc(evidence_names[index] if index < len(evidence_names) else "详见统一清单")}</span>'
+                    for index, material_id in enumerate(evidence_ids)
+                )
+            else:
+                ev_html = "".join(
+                    f'<span class="material-ref">历史材料 · {_esc(name)}</span>'
+                    for name in evidence_names
+                )
             amt = f.get("amount")
             amt_txt = f"{amt:,} 元" if isinstance(amt, (int, float)) else (f"{amt} 元" if amt else "")
             # suspicion_level 仅用于 CSS 类名，限定白名单避免污染 class 属性
@@ -403,8 +419,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
                 f'<div class="hts-signals">{sig_html}</div>'
                 f'<div class="hts-msg">{_esc(f.get("message", ""))}</div>'
                 f'<div class="rule-section audit-materials-section">'
-                f'<div class="section-title">📁 需举证材料</div>'
-                f'<div class="section-body"><div class="audit-mats">{ev_html}</div></div></div>'
+                f'<div class="section-title">关联材料编号（详见统一清单）</div>'
+                f'<div class="section-body"><div class="material-refs">{ev_html}</div></div></div>'
                 f"</div>"
             )
         hts_section_html = (
@@ -413,10 +429,134 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
             f"{cards}"
         )
 
-    # 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）
+    # 六到位自查（事实 → 六维确认 → 综合结论，见 docs/adr/0003）
+    six_daowei_checks = result.get("six_daowei_checks") or []
+    r08_checks = result.get("r08_checks") or []
+    six_daowei = result.get("six_daowei_check")
     ctrl = result.get("control_roles_check")
     control_roles_section_html = ""
-    if ctrl:
+    if six_daowei_checks:
+        r08_by_unit = {item.get("unit_id"): item for item in r08_checks}
+        value_labels = {
+            "in_place": "到位", "not_in_place": "不到位",
+            "pending_evidence": "待补证据", "not_applicable": "不适用",
+        }
+        status_labels = {"passed": "通过", "failed": "不通过", "provisional": "待补证据"}
+        cards = ""
+        for check in six_daowei_checks:
+            status = check.get("status") if check.get("status") in status_labels else "provisional"
+            dimensions = ""
+            for dim in check.get("dimensions") or []:
+                dim_value = dim.get("value")
+                safe_dim_value = dim_value if dim_value in value_labels else "pending_evidence"
+                dimensions += (
+                    f'<div class="daowei-dim daowei-dim-{safe_dim_value}">'
+                    f'<span class="daowei-dim-name">{_esc(dim.get("label"))}</span>'
+                    f'<span class="daowei-dim-value">{_esc(value_labels.get(dim_value, "未确认"))}</span>'
+                    f'</div>'
+                )
+            r08 = r08_by_unit.get(check.get("unit_id")) or {}
+            r08_status = r08.get("status") if r08.get("status") in status_labels else "provisional"
+            r08_answers = "".join(
+                f'<div class="unit-check-row"><span>{_esc(answer.get("label"))}</span>'
+                f'<strong>{_esc({"yes": "是", "no": "否", "pending_evidence": "待补证据"}.get(answer.get("value"), "未确认"))}</strong></div>'
+                for answer in r08.get("answers") or []
+            )
+            pending = list(check.get("pending") or []) + list(r08.get("pending") or [])
+            failures = list(check.get("failures") or []) + list(r08.get("failures") or [])
+            notes = "".join(f"<li>{_esc(item)}</li>" for item in failures + pending)
+            cards += (
+                f'<div class="unit-self-check unit-self-check-{status}">'
+                f'<div class="unit-self-head"><strong>{_esc(check.get("unit_name"))}</strong>'
+                f'<span>六到位：{_esc(status_labels[status])}</span>'
+                f'<span>R08：{_esc(status_labels[r08_status])}</span></div>'
+                f'<div class="daowei-dims">{dimensions}</div>'
+                f'<div class="r08-grid">{r08_answers}</div>'
+                + (f'<ul class="unit-self-notes">{notes}</ul>' if notes else "")
+                + '</div>'
+            )
+        control_roles_section_html = (
+            '<div class="section-heading">拟全额核算单元自查 '
+            '<span class="heading-sub">（六到位 + R08，逐单元提示）</span></div>'
+            '<div class="manual-intro">本板块仅形成辅助判断和标准证据提醒。待补证据不自动改为净额，'
+            '但会按暂定全额、高风险展示；明确不到位或人工确认为代理人时，才在本次自检中落为净额。</div>'
+            + cards
+        )
+    elif six_daowei:
+        _value_labels = {
+            "in_place": "到位", "not_in_place": "不到位", "pending_evidence": "待补证据",
+        }
+        _level_labels = {"strong": "强", "medium": "中", "none": "无"}
+        _raw_level = six_daowei.get("level")
+        _safe_level = _raw_level if _raw_level in _level_labels else "medium"
+        _source = "人工确认" if six_daowei.get("level_source") == "confirmed" else "系统建议"
+        _dimension_rows = ""
+        for dim in six_daowei.get("dimensions") or []:
+            _effective = dim.get("effective")
+            _safe_value = _effective if _effective in _value_labels else "pending_evidence"
+            _suggested = dim.get("suggested")
+            _basis = "；".join(str(x) for x in (dim.get("basis") or []))
+            _mismatch = (
+                '<span class="daowei-diff">与系统建议不同</span>' if dim.get("mismatch") else ""
+            )
+            _dimension_rows += (
+                f'<div class="daowei-dim daowei-dim-{_safe_value}">'
+                f'<span class="daowei-dim-name">{_esc(dim.get("label", ""))}</span>'
+                f'<span class="daowei-dim-value">{_esc(_value_labels[_safe_value])}</span>'
+                f'<span class="daowei-dim-suggest">系统建议：{_esc(_value_labels.get(_suggested, "待计算"))}</span>'
+                f'{_mismatch}'
+                f'<div class="daowei-dim-basis">{_esc(_basis)}</div>'
+                f'</div>'
+            )
+
+        _role = six_daowei.get("role_check") or ctrl or {}
+        _missing = _role.get("missing") or []
+        _role_html = ""
+        if _role:
+            _role_html = (
+                f'<div class="daowei-role">'
+                f'<div class="daowei-role-title">关键角色事实</div>'
+                f'<div class="daowei-role-msg">{_esc(_role.get("message", ""))}</div>'
+                + (
+                    '<ul class="ctrl-missing-list">'
+                    + "".join(f"<li>{_esc(m)}</li>" for m in _missing)
+                    + "</ul>"
+                    if _missing else ""
+                )
+                + "</div>"
+            )
+
+        _level_diff = ""
+        if six_daowei.get("level_mismatch"):
+            _level_diff = (
+                f'<div class="daowei-level-diff">人工确认与系统建议“'
+                f'{_esc(_level_labels.get(six_daowei.get("suggested_level"), "待计算"))}”不同，'
+                f'报告保留人工结论并提示复核证据。</div>'
+            )
+        _gate = six_daowei.get("listing_gate") or {}
+        _gate_status_raw = _gate.get("status")
+        _gate_status = _gate_status_raw if _gate_status_raw in {"passed", "failed", "incomplete"} else "incomplete"
+        _gate_html = ""
+        if _gate.get("message"):
+            _gate_html = (
+                f'<div class="daowei-gate daowei-gate-{_gate_status}">'
+                f'{_esc(_gate.get("message", ""))}</div>'
+            )
+        control_roles_section_html = (
+            f'<div class="section-heading">六到位自查 '
+            f'<span class="heading-sub">（事实复用 + 人工确认）</span></div>'
+            f'<div class="ctrl-card daowei-level-{_safe_level}">'
+            f'<div class="ctrl-head"><span class="ctrl-badge">六到位综合结论：'
+            f'{_esc(_level_labels[_safe_level])}（{_source}）</span></div>'
+            f'<div class="ctrl-msg">{_esc(six_daowei.get("message", ""))}</div>'
+            f'<div class="daowei-level-basis">系统建议依据：{_esc(six_daowei.get("level_basis", ""))}</div>'
+            f'{_level_diff}'
+            f'{_gate_html}'
+            f'<div class="daowei-dims">{_dimension_rows}</div>'
+            f'{_role_html}'
+            f'</div>'
+        )
+    elif ctrl:
         _status = ctrl.get("status", "")
         # status 拼进 class 属性，白名单防注入
         _safe_status = _status if _status in (
@@ -439,8 +579,8 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
                 + "</ul></div>"
             )
         control_roles_section_html = (
-            f'<div class="section-heading">控制权角色自查 '
-            f'<span class="heading-sub">（总额法资格，项目级）</span></div>'
+            f'<div class="section-heading">六到位自查 '
+            f'<span class="heading-sub">（历史角色证据）</span></div>'
             f'<div class="ctrl-card ctrl-{_safe_status}">'
             f'<div class="ctrl-head">'
             f'<span class="ctrl-badge">{_badge}</span>'
@@ -465,7 +605,66 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     listing = result.get("listing_mode") or {}
     listing_section_html = ""
     _lm_mode = listing.get("mode")
-    if _lm_mode and _lm_mode != "regular":
+    if listing.get("schema_version") == 2:
+        ratios = listing.get("ratios") or {}
+        ratio_rows = ""
+        _si_v2 = ratios.get("service_integration_pct")
+        _sf_v2 = ratios.get("single_fulfillment_pct")
+        if _si_v2 is not None:
+            ratio_rows += (
+                '<div class="lm-ratio">服务整合比例：设备 + 成品软件 + 施工 / 整个 BPM 项目 '
+                f'<strong>{_esc(f"{_si_v2:.1%}")}</strong>（参考线 ≤60%）</div>'
+            )
+        if _sf_v2 is not None:
+            ratio_rows += (
+                '<div class="lm-ratio">分别核算比例：设备 + 成品软件 / '
+                f'(设备 + 成品软件 + 服务 + 标品) <strong>{_esc(f"{_sf_v2:.1%}")}</strong>（参考线 ≤80%，施工不进分母）</div>'
+            )
+
+        unit_rows = ""
+        for item in listing.get("unit_decisions") or []:
+            intent = item.get("listing_intent")
+            result_value = item.get("listing_result")
+            status = item.get("listing_result_status")
+            safe_result = result_value if result_value in {"full", "net"} else "full"
+            safe_status = status if status in {"confirmed", "provisional"} else "provisional"
+            intent_label = {"full": "拟全额列收", "net": "拟净额列收"}.get(intent, "意图未确认")
+            result_label = "全额列收" if safe_result == "full" else "净额列收"
+            if safe_status == "provisional":
+                result_label = f"暂按{result_label}测算"
+            amount = item.get("amount")
+            amount_text = f"{amount:,.2f} 元" if isinstance(amount, (int, float)) else (f"{amount} 元" if amount else "金额未填")
+            reason_html = "".join(f"<li>{_esc(reason)}</li>" for reason in item.get("reasons") or [])
+            gate_html = ""
+            for gate in item.get("policy_gates") or []:
+                gate_status = "通过" if gate.get("ok") is True else ("不通过" if gate.get("ok") is False else "待确认")
+                gate_value = gate.get("value")
+                if isinstance(gate_value, (int, float)):
+                    gate_value = f"{gate_value:.1%}"
+                gate_value_html = f' <span class="lm-gate-val">（{_esc(gate_value)}）</span>' if gate_value is not None else ""
+                gate_html += f'<div class="lm-gate">{gate_status} · {_esc(gate.get("name"))}{gate_value_html}</div>'
+            unit_rows += (
+                f'<div class="lm-unit-v2 lm-unit-{safe_result} lm-status-{safe_status}">'
+                f'<div class="lm-unit-v2-head"><strong>{_esc(item.get("unit_name"))}</strong>'
+                f'<span>{_esc(intent_label)}</span><span class="lm-unit-tag">{_esc(result_label)}</span></div>'
+                f'<div class="lm-unit-v2-meta">{_esc("、".join(item.get("declared_types") or []) or item.get("declared_type"))} · {_esc(amount_text)} · {_esc(item.get("mode_label"))}</div>'
+                f'<div class="lm-unit-v2-checks">六到位：{_esc(item.get("six_daowei_status"))} · R08：{_esc(item.get("r08_status"))}</div>'
+                + (f'<div class="lm-gates">{gate_html}</div>' if gate_html else "")
+                + (f'<ul class="lm-unit-reasons">{reason_html}</ul>' if reason_html else "")
+                + '</div>'
+            )
+
+        listing_section_html = (
+            '<div class="section-heading">核算单元列收自检 '
+            '<span class="heading-sub">（辅助测算，不替代最终审核与决策）</span></div>'
+            '<div class="lm-card lm-mixed">'
+            f'<div class="lm-basis">{_esc(listing.get("basis"))}</div>'
+            + (f'<div class="lm-ratios">{ratio_rows}</div>' if ratio_rows else "")
+            + f'<div class="lm-units-v2">{unit_rows}</div>'
+            + '<div class="lm-foot">“暂按全额测算”表示当前自检仍有证据或事实待确认，按高风险提示；'
+            + '本报告不发起送审、不代替 BPM 流程，也不形成最终列收决定。</div></div>'
+        )
+    elif _lm_mode and _lm_mode != "regular":
         # mode 拼进 class 属性，白名单防注入
         _safe_mode = _lm_mode if _lm_mode in (
             "capital", "service_integration", "single_fulfillment", "net_settlement"
@@ -732,7 +931,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   }}
   .hts-msg {{ font-size: 13px; color: #475569; line-height: 1.7; margin-bottom: 10px; }}
 
-  /* 控制权角色自查（总额法资格，见 docs/adr/0003）—— 4 种 status 各自配色 */
+  /* 六到位自查（项目角色共性证据，见 docs/adr/0003）—— 4 种 status 各自配色 */
   /* 列收模式判定（27 号文，docs/adr/0004）*/
   .lm-card {{
     border: 1px solid #e5e7eb; border-left: 4px solid #9ca3af;
@@ -764,6 +963,24 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .lm-blockers ul, .lm-softs ul {{ margin: 0 0 0 18px; font-size: 12px; }}
   .lm-softs {{ color: #92400e; }}
   .lm-foot {{ font-size: 11px; color: #9ca3af; margin-top: 10px; border-top: 1px dashed #e5e7eb; padding-top: 6px; }}
+  .lm-units-v2 {{ display: grid; gap: 10px; margin-top: 12px; }}
+  .lm-unit-v2 {{ background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid #64748b; border-radius: 8px; padding: 12px; break-inside: avoid; }}
+  .lm-unit-v2.lm-unit-full {{ border-left-color: #16a34a; }}
+  .lm-unit-v2.lm-unit-net {{ border-left-color: #64748b; }}
+  .lm-unit-v2.lm-status-provisional {{ border-color: #fcd34d; border-left-color: #d97706; background: #fffbeb; }}
+  .lm-unit-v2-head {{ display: flex; align-items: center; gap: 10px; font-size: 12px; }}
+  .lm-unit-v2-head strong {{ flex: 1; font-size: 14px; color: #1f2937; }}
+  .lm-unit-v2-meta, .lm-unit-v2-checks {{ font-size: 11px; color: #64748b; margin-top: 5px; }}
+  .lm-unit-reasons {{ margin: 8px 0 0 18px; font-size: 11px; color: #7c2d12; line-height: 1.6; }}
+  .unit-self-check {{ border: 1px solid #e5e7eb; border-left: 4px solid #16a34a; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; break-inside: avoid; }}
+  .unit-self-check-failed {{ border-left-color: #dc2626; background: #fef2f2; }}
+  .unit-self-check-provisional {{ border-left-color: #d97706; background: #fffbeb; }}
+  .unit-self-head {{ display: flex; gap: 12px; align-items: center; font-size: 11px; color: #475569; }}
+  .unit-self-head strong {{ flex: 1; font-size: 14px; color: #1f2937; }}
+  .r08-grid {{ margin-top: 10px; }}
+  .unit-check-row {{ display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e5e7eb; padding: 6px 0; font-size: 11px; }}
+  .unit-self-notes {{ margin: 8px 0 0 18px; font-size: 11px; color: #7c2d12; line-height: 1.6; }}
+  .daowei-dim-not_applicable .daowei-dim-value {{ background: #e0f2fe; color: #075985; }}
   .ctrl-card {{
     border: 1px solid #e5e7eb;
     border-left: 4px solid #9ca3af;
@@ -796,6 +1013,32 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .ctrl-missing {{ margin-top: 10px; padding: 10px 12px; background: rgba(255,255,255,0.6); border-radius: 6px; }}
   .ctrl-missing-title {{ font-size: 12px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }}
   .ctrl-missing-list {{ margin: 0; padding-left: 20px; font-size: 12px; color: #374151; line-height: 1.7; }}
+  .ctrl-card.daowei-level-strong {{ border-left-color: #16a34a; background: #f0fdf4; }}
+  .ctrl-card.daowei-level-medium {{ border-left-color: #d97706; background: #fffbeb; }}
+  .ctrl-card.daowei-level-none {{ border-left-color: #dc2626; background: #fef2f2; }}
+  .daowei-level-strong .ctrl-badge {{ color: #15803d; }}
+  .daowei-level-medium .ctrl-badge {{ color: #92400e; }}
+  .daowei-level-none .ctrl-badge {{ color: #b91c1c; }}
+  .daowei-level-basis {{ font-size: 12px; color: #4b5563; margin-bottom: 8px; }}
+  .daowei-level-diff {{ font-size: 11px; color: #92400e; margin-bottom: 8px; }}
+  .daowei-gate {{ font-size: 11px; line-height: 1.6; padding: 8px 10px; margin: 8px 0; border-radius: 6px; }}
+  .daowei-gate-passed {{ background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }}
+  .daowei-gate-failed {{ background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }}
+  .daowei-gate-incomplete {{ background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }}
+  .daowei-dims {{ border-top: 1px solid #e5e7eb; margin-top: 10px; }}
+  .daowei-dim {{ display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }}
+  .daowei-dim-name {{ font-size: 12px; font-weight: 700; color: #1f2937; }}
+  .daowei-dim-value, .daowei-dim-suggest, .daowei-diff {{ font-size: 10px; white-space: nowrap; }}
+  .daowei-dim-value {{ padding: 2px 7px; border-radius: 6px; background: #e5e7eb; color: #374151; font-weight: 700; }}
+  .daowei-dim-in_place .daowei-dim-value {{ background: #dcfce7; color: #166534; }}
+  .daowei-dim-not_in_place .daowei-dim-value {{ background: #fee2e2; color: #991b1b; }}
+  .daowei-dim-pending_evidence .daowei-dim-value {{ background: #fef3c7; color: #92400e; }}
+  .daowei-dim-suggest {{ color: #6b7280; }}
+  .daowei-diff {{ color: #92400e; }}
+  .daowei-dim-basis {{ grid-column: 1 / -1; font-size: 10px; color: #6b7280; line-height: 1.5; }}
+  .daowei-role {{ margin-top: 10px; padding: 10px 12px; background: rgba(255,255,255,0.65); border-radius: 6px; }}
+  .daowei-role-title {{ font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 4px; }}
+  .daowei-role-msg {{ font-size: 11px; color: #4b5563; line-height: 1.6; }}
   .heading-ai-tag {{
     font-size: 12px;
     padding: 2px 8px;
@@ -1032,6 +1275,18 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   .audit-item-main strong {{ color: #333333; font-weight: 600; }}
   .audit-sep {{ color: #9ca3af; }}
   .audit-purpose {{ color: #6b7280; }}
+  .material-refs {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+  .material-ref, .material-id {{
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #f8fafc;
+    color: #475569;
+    font-family: monospace;
+    font-size: 10px;
+  }}
   .tip-card {{ border-left: 4px solid #2563eb !important; }}
 
   /* 审计清单（与 ReportView .checklist-card：padding 12px 16px） */
@@ -1074,6 +1329,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     padding: 7px 14px;
     border-bottom: 1px solid rgba(0,0,0,0.07);
   }}
+  .cl-group-desc {{ display: block; margin-top: 2px; font-weight: 400; color: #64748b; }}
   .cl-group .checklist-item {{
     padding: 9px 14px;
     margin: 0;
@@ -1093,6 +1349,11 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
     cursor: default;
     border: 1px solid #e2e8f0;
   }}
+  .material-strength {{ font-size: 10px; padding: 1px 6px; border-radius: 5px; }}
+  .material-strength.core {{ color: #166534; background: #dcfce7; }}
+  .material-strength.supporting {{ color: #92400e; background: #fef3c7; }}
+  .material-units {{ margin-top: 4px; color: #475569; font-size: 11px; }}
+  .material-components {{ margin: 5px 0 0 18px; padding: 0; color: #475569; font-size: 11px; line-height: 1.55; }}
 
   /* 人工核查卡片 */
   .manual-card {{ border-left: 4px solid #d97706 !important; }}
@@ -1127,6 +1388,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
       <span>🕐 诊断时间：{created_at}</span>
       <span>📌 报告编号：#{diagnosis_id}</span>
       <span>规则版本：{rule_ver}</span>
+      <span>材料目录：{_esc(material_ver)}</span>
     </div>
   </div>
 
@@ -1154,7 +1416,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   <!-- 硬转服务嫌疑（#9，举证式）-->
   {hts_section_html}
 
-  <!-- 控制权角色自查（总额法资格，项目级，见 docs/adr/0003）-->
+  <!-- 六到位自查（项目角色共性证据，见 docs/adr/0003）-->
   {control_roles_section_html}
 
   <!-- 风险详情：segments模式按板块分节，降级模式平铺 -->
@@ -1167,7 +1429,7 @@ def generate_report_html(diagnosis_id: int, bpm_id: str, result: dict, created_a
   {manual_section_html}
 
   <!-- 审计材料清单 -->
-  <div class="section-heading">审计资料必备清单</div>
+  <div class="section-heading">项目材料准备清单 <span class="heading-sub">（统一目录、按编号去重）</span></div>
   <div class="checklist-box">
     {checklist_inner}
   </div>

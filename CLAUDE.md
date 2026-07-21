@@ -4,6 +4,22 @@
 
 ---
 
+## Agent skills
+
+### Issue tracker
+
+项目工作项统一记录在 GitHub Issues。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+采用 `needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix` 五个默认分诊标签。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+采用单领域上下文：根目录 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。
+
+---
+
 ## 项目定位
 
 给广州电信云中台团队使用的内部工具，通过 AI 对话收集 ICT 项目的结构化字段，用规则引擎做合规风险诊断，再用 AI 生成个性化报告。不对外部开放。
@@ -52,9 +68,10 @@
 ## 关键约定
 
 ### 规则库
-- 规则文件：`backend/rules/rules.json`（当前 v1.8.0，共 35 条，编号 R01–R37，跳号 R04/R33）
+- 规则文件：`backend/rules/rules.json`（当前 v2.1.0，共 35 条，编号 R01–R37，跳号 R04/R33）
 - 条款原文：`backend/rules/clauses.json`
 - 集团白名单：`backend/rules/whitelist.json`（27 号文，版本化大类粒度，喂列收模式分类器，见下「列收模式」）
+- 材料主目录：`backend/rules/materials.json`（当前 2026-07-19，以 2026-07-18 更新的《ICT项目全流程控制权角色职责和佐证材料》为准）。规则只能通过 `audit_material_refs.material_id` 引用，不得在规则卡重复维护文字清单
 - 改规则无需动代码，重启后端即生效；每次更新必须修改 `version` 字段
 - `"logic": "MANUAL"` 的规则（R01/R05/R13/R19/R20/R28）系统不自动触发，统一收集进 `manual_check_rules` 在报告中单独展示
 - 规则覆盖广东电信「六到位核查清单」六个维度（客情掌握 / 方案总控 / 谈判应标自主 / 采购自主 / 项目强管理 / 运维自主）
@@ -62,39 +79,47 @@
 ### 字段与项目类型
 - 项目类型（`project_type`）是多选数组，决定哪些字段为必填、哪些规则生效
 - `project_type` 在 `/api/confirm` 时为绝对必填，缺失返回 400
-- `service_capability_level` 由系统根据 `service_delivery_mode` 推导，不接受手填
+- `service_capability_level` 和项目级 `six_daowei_*` 为历史兼容字段；新诊断在 `accounting_units_json` v2 结构中按拟全额最终核算单元保存六维与 `strong|medium|none`
 - BPM 商机编号存入和查询时统一转大写
 
 ### 核算单元（2026-06-05 上线，见 `CONTEXT.md` / `docs/adr/0002`）
-- 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，每块有：申报类型（设备/施工/服务/标品）、金额、税率、毛利、物流、是否有自有能力、**是否属集团白名单**（`whitelisted` 三态，仅设备/标品有意义）。**列收方式（`listed`）不再是用户填的字段，而是分类器派生输出**（见下「列收模式」）
-- AI 切分为草稿，用户在「信息解析」面板确认/微调；确认后随诊断落库（`accounting_units_json`）。**服务单元卡片可编辑驱动硬转服务检测的三信号** `gross`/`logistics`/`has_self_capability`（取值对齐引擎：`logistics ∈ {self, supplier_direct, unknown}`、`has_self_capability ∈ {true, false, unknown}`）；**设备/标品单元卡片可编辑 `whitelisted`**（`true`/`false`/`unknown`，AI 提议、用户确认、`unknown` 保守当非白名单）
-- **单元角色（27 号文重构后，见 docs/adr/0004）**：第一遍项目级判列收模式时单元是**数据采集层**（贡献申报类型/金额/白名单/利润算占比）；走不通退第二遍单元才是**兜底判定单位**。`enforce_hardware_no_listing()` 语义已从「无条件钉死 `listed=False`」降级为「**设默认净额**」（铁律→默认兜底），分类器反向 upgrade 合格全额单元
-- **硬转服务（举证式）**：申报为服务且列收的单元若呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列需举证材料，**不自动定性**；嫌疑等级计入整体风险。与列收模式正交（误申报轴 vs 正当申报硬件的全额/净额轴）
+- 项目按「**核算单元**」切分——一笔合同（=一个 BPM 商机）内被分别核算的业务块，目标类型为设备/成品软件/施工/服务/标品/其他。每个非标品最终核算单元由用户确认 `listing_intent=full|net`，规则只读派生 `listing_result=full|net`；标品恒全额，旧 `listed` 仅兼容历史
+- AI 切分为草稿，用户在「信息解析」面板确认/微调；`accounting_units_json` 新会话保存 `schema_version=2` 的原始单元、候选组合、最终单元意图、六到位和 R08。**服务原始单元**可编辑 `gross`/`logistics`/`has_self_capability`；**设备/成品软件**可编辑 `whitelisted=true|false|unknown`；标品不判断白名单
+- **组合关系**：每个候选组合填写 PO1–PO4，系统给组合/分别建议，用户确认；同一 BPM 可部分组合、部分独立。原始单元类型、组成或组合关系变化只使受影响最终单元的自查失效；金额变化只重算项目口径门槛
+- **硬转服务（举证式）**：申报为服务且其最终核算单元拟全额时，若原始服务明细呈现硬件/施工实质（零毛利平进平出 / 物流供应商直发 / 无自有能力）→ 标记嫌疑 + 列标准证据清单，**不自动定性**。服务明细被组合后仍逐项检测；不自动改类型、拆组合或改净额
+- **类型按实质**：算力、室分、三线、综合布线、弱电不按关键词锁死。自投资算力进资本模式；客户独立交付的标准设备仍可作为设备；布线、安装、施工归施工。AI 建议、用户确认
 - **服务侧毛利率 `gross_margin`**（喂 R03/R12/R32/硬转服务）语义为「**应列收/服务侧毛利**」，AI 抽取与用户填写**绝不能把设备/施工毛利混算进来**（否则被硬件块拖进 `lte_0` 误报三零/过手）。**项目整体利润率另立 `overall_margin`**（含硬件、只喂列收模式门槛 ≥10%/≥5%，严禁喂三零/过手）——两者同源不同用、严禁互串
 - **核算单元缺失软警告**：含设备/系统集成等本应切分单元的项目（`_UNIT_EXPECTED_TYPES`）若未切分就提交，引擎注入 `unit_warning`——**不阻断诊断**，但报告顶部黄条提示「列收模式/硬转服务检测未生效，结论可能偏严」。纯服务/软件单单元项目不触发
 - 贯穿原则：**工具标风险、举证定生死，不替审核人定罪**
 - 引擎入口 `run_diagnosis(project_type, fields, accounting_units=None)`；结果含 `accounting_units` / `suppressed_rules` / `hard_to_service` / `unit_warning` / `control_roles_check` / **`listing_mode`**
 
 ### 列收模式（2026-06-26 上线，见 `CONTEXT.md` / `docs/adr/0004`）
-- **集团 27 号文重构**：旧「硬件/施工铁律不列收」被推翻——集团白名单硬件/成品软件在「门槛 + 控制权」齐备时可全额列收，「净额」从铁律降级为**默认兜底**
-- **分类器** `classify_listing_mode(type_set, fields, units, control_status)`（`rules/engine.py` 计算式，不进 rules.json）：**级联**——第一遍项目级实质路由（资本/服务整合/单一履约/净额）套全额，过线整项目全额；走不通退第二遍逐单元白名单兜底。就地把合格全额单元的 `listed` 置 True（**派生输出**）
-- **四模式实质路由**（非门槛排队）：①电信投资设备打包→资本（留出口、打标，不实现收投比门槛）②重大整合（`major_integration`）→服务整合 ③标准白名单+单独履约→单一履约·白名单 ④都不是→收支差净额
-- **两套占比公式**（逐字核对 27 号文）：服务整合 `(设备+施工)/项目整体 ≤60%`（集成施工进分子）；单一履约场景一 `(设备+标品)/(设备+标品+服务) ≤80%`（施工排除出分母）。详见 `CONTEXT.md`「两套占比公式」词条
+- **集团 27 号文准则化重构**：旧「硬件/施工铁律不列收」、项目级 `major_integration` 和项目级级联分类器只保留历史数组兼容；新诊断走 `evaluate_accounting_structure()`，逐最终核算单元派生结果
+- **结果三件套**：用户确认 `listing_intent=full|net`；规则派生 `listing_result=full|net`；`listing_result_status=confirmed|provisional` 表示确认或暂定。证据未知保留拟全额、暂定、高风险；明确失败才确认净额
+- **两套项目口径公式**：服务整合 `(设备+成品软件+施工)/整个 BPM ≤60%`，标品只进分母；分别核算 `(设备+成品软件)/(设备+成品软件+服务+标品) ≤80%`，施工排除。门槛是省内配套自检口径，不再标成“27 号文硬条件”
 - **门槛字段**：`overall_margin`（≥10%服务整合/≥5%单一履约）；**全额准入闸硬/软分治**——硬否决=`customer_type` 闭集外（仅 private/other 软，state_owned/institution/government 过）+ `payment_terms != standard`；软=`ownership_transfer`/`collective_procurement_ratio`
-- **控制权是所有全额模式的总闸门**：`control_status != "eligible"` → 全部硬件落净额
+- **单元不连带**：六到位、R08 和政策条件均落到对应最终核算单元；某单元失败不改写其他单元。项目级角色与交付事实只复用，不形成整个项目强/中/无结论
 - **时点法 v1 走轻做**：占比默认全算非周期 + 报告口径提示 + 人工复核兜，未加 `recurring` 字段（升级触发点见 ADR 0004）
-- **存量规则对齐**（v1.8.0）：R24/R25（误申报轴）让位单元级硬转服务 #9、被抑制；R26（物权轴）升格为单元级全额否决闸、保留为真实风险；R21/R22/R23（全额/差额单值判定）reframe 为服务/控制权视角，与 listing_mode 并立不互否
-- 结果键 `listing_mode`（mode/full_listing/ratios/gates/unit_decisions/blockers/softs）；报告「列收模式判定」板块 + 前端「信息解析」面板「列收模式信息」独立段
+- **存量规则对齐**（v1.8.x）：R24/R25（误申报轴）让位单元级硬转服务 #9、被抑制；R26（物权轴）升格为单元级全额否决闸、保留为真实风险；R21/R22/R23（全额/差额单值判定）reframe 为服务/控制权视角，与 listing_mode 并立不互否
+- 结果新增 `accounting_structure` / `six_daowei_checks` / `r08_checks` / v2 `listing_mode.unit_decisions`；报告同时展示意图、结果、暂定状态、原因和标准证据清单
 
-### 控制权角色自查（2026-06-09 上线，见 `CONTEXT.md` / `docs/adr/0003`）
-- **项目级**控制权判定，对应省公司《产数ICT业务高质量发展专项部署材料》（2026-06-03）**官方 19 角色 / 8 情形矩阵**。与单元级硬转服务（ADR 0002）是「同一根问题——控制权——的两个尺度」，分层互补不冲突
+### 六到位自查（2026-06-09 上线，2026-07-18 合并，见 `CONTEXT.md` / `docs/adr/0003`）
+- 原项目级角色自查与服务场景 N1–N6 **属于同一套六到位**，不得再拆成两个模块。19 角色 / 8 情形提供项目级流程角色证据；`service_delivery_mode`、N1–N6、供应商管控和交付责任提供服务场景证据；后续 R08 履约义务控制权判断复用这些证据
 - **判定**：10 角色进矩阵——必选 6/7/9（涉硬件加 16）+ 三组二选一各占一个（方案 {3\|4} / 交付实施 {10\|11} / 实施开发 {13\|14}）→ 落在 8 情形之一 → 资格成立。必选与二选一**等权**
 - **字段** `control_roles`：多选数组（`multi: True`，非必填），10 个编号字符串。AI 解析能抽则自动（明确说"主导/决策/责任"才抽，不臆测），否则面板手动填——spike 已证伪"AI 预勾"，角色通常需手填。引擎对字符串误输入（如 `"6,7,9"`）按分隔符拆分容错，不逐字符迭代（2026-06-10 加固）
-- **采集形态**：「信息解析」面板独立段「控制权角色」，按 4 组分区（必选灰底 / 三组二选一虚框），角色 16 由 `hasHardware`（核算单元含设备/施工 或 `hardware_construction==yes`）联动显示
-- **定级（举证式）**：占齐→`eligible/low`（绿正向提示）；缺任一必要元素→`ineligible/high`（红，定性倾向代理人/净额、可举证翻案）；未填但项目奔全额（R21 触发 或 `service_delivery_mode ∈ {all_telecom, mixed}`）→`unfilled_wants_full/medium`（黄）；未填+不奔全额→`unfilled/tip`（灰，留痕不打扰）
+- **采集形态**：顺序固定为「原始单元 → 候选组合 PO1–PO4 → 最终单元列收意图 → 项目共性角色事实 → 各拟全额单元六维和 R08 → 项目口径政策信息」；净额单元和标品跳过六到位/R08
+- **角色子检查（举证式）**：占齐→`eligible/low`；缺任一必要元素→`ineligible/high`；未填但项目奔全额→`unfilled_wants_full/medium`；未填+不奔全额→`unfilled/tip`
+- **六维与综合建议**：`assess_six_daowei()` 复用角色、交付模式和既有字段预写建议；用户可采用未确认建议并逐项修改。强要求六维全到位+角色齐备+非全部外部交付；无要求外部交付+无自有能力+角色缺失+项目管理/运维不到位等多信号合取；其余为中。建议不覆盖人工值
+- **不适用**：`not_applicable` 只向采购自主、运维自主开放；对应“无外部采购”或“无运维/售后义务”事实为真时按通过计算
+- **证据与辅助边界**：系统只生成标准材料清单，不实现附件上传、说明输入、补证跟踪、送省按钮、送审状态或审批流。`provisional` 报告标为“暂按全额测算、高风险”，不替代最终审核
+- **角色材料包**：附件2明确 12 个有独立核心佐证的角色 `1/3/4/6/7/9/10/11/13/14/16/18`；其中 10 个进角色矩阵，`1/18` 分别补强客情和运维维度。`2/5/8/12/15/17/19` 为配合角色，没有独立主控佐证包，不能替代主控证据
+- **清单分类与去重**：报告只在统一清单展开材料组成，规则卡和嫌疑卡只显示材料编号。目录固定分为「基础过程材料 / 条件性合规材料 / 财务列收材料 / 异常补正材料」；按材料编号去重，不按相似名称误合并不同对象或不同审批事项
+- **单元级全额前置闸门**：明确不到位、`medium|none` 或人工确认为代理人时对应单元确认净额；`pending_evidence`、白名单 `unknown`、R08 冲突只形成暂定全额和高风险。标品始终确认全额
+- **无项目级结论**：不生成“整个项目六到位强/中/无”；净额单元跳过，项目没有拟全额单元时隐藏整个模块且不抬风险
 - **防撞**：R09 纯外采触发时**抑制**本检查的 ineligible（避免对纯外采项目重复报无控制权）
-- **融合不替换**：R08 控制权证据核查（C1-C6 → 附件1 六维度官方表述）保留为**会计要件视角**；本检查为**流程角色视角**，两套官方框架并立、互补不重复
-- 引擎入口 `assess_control_roles(control_roles, has_hardware, wants_full)`（不进 `rules.json`，组合逻辑现有 DSL 表达不了，沿用计算式模式）；结果键 `control_roles_check`
+- **与 R08 的边界**：六到位先判断目标核算单元是否具备争取全额的主控和验收主责基础；未过只使该单元净额，过闸后 R08 再判断该单元的主要责任人/代理人会计控制权。两者复用项目级共性证据但不合并结论；虚假贸易仍是独立真实性风险轴
+- **整体风险**：`overall_risk` 取规则与单元风险最高值；任一拟全额单元暂定、缺证据、白名单未知、硬转服务或明确失败落净额均抬为高风险。拟净额单元不因跳过条件抬风险；风险汇总不得改写其他单元列收结果
+- 旧数组入口继续使用 `assess_control_roles(...)` + `assess_six_daowei(...)`；v2 新入口使用 `evaluate_accounting_structure(...)`，结果为单元级 `six_daowei_checks` / `r08_checks`
 
 ### AI 个性化分析
 - 提交确认后，规则引擎先跑（同步），AI 分析后跑（并发，每条规则一次调用）
@@ -182,9 +207,9 @@
 |------|------|---------|------|
 | `LoginView.vue` | `/login` | 公开 | 登录（未登录唯一可访问的路由） |
 | `ChangePasswordView.vue` | `/profile/password` | 任何登录用户 | 改密；`must_change_password=true` 时强制跳转 |
-| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 核算单元切分确认（含白名单三态）+ 列收模式信息段 + 控制权角色段 + 提交 |
+| `ChatView.vue` | `/` | 任何登录用户 | 主对话页，信息收集 + 核算单元切分确认（含白名单三态）+ 六到位三步确认 + 列收模式信息段 + 提交 |
 | `DiagnosesView.vue` | `/diagnoses` | 任何登录用户 | 合并列表，按角色过滤行 |
-| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示（含「列收模式判定」「已排除列收」「硬转服务嫌疑」「控制权角色自查」板块）+ 人工复核弹窗（PDF 下载用 blob） |
+| `ReportView.vue` | `/report/:id` | 权限内可访问 | 报告展示（含「列收模式判定」「已排除列收」「硬转服务嫌疑」「六到位自查」板块）+ 人工复核弹窗（PDF 下载用 blob） |
 | `BpmLookupView.vue` | `/lookup` | 任何登录用户 | 按 BPM 查历史诊断（后端按角色过滤结果） |
 | `TraceabilityView.vue` | `/trace` | 权限内可访问 | 填报溯源 |
 | `AdminLinesView.vue` | `/admin/lines` | admin | 线条 CRUD |
@@ -204,9 +229,9 @@
 
 - pytest 测试位于 `backend/tests/`，配置 `backend/pytest.ini`，依赖 `backend/requirements-dev.txt`（生产 `requirements.txt` 不含 pytest）
 - 跑：`cd backend && pip install -r requirements-dev.txt && pytest`（纯函数、无需 DB/DeepSeek、秒级）
-- 覆盖（85 条）：引擎核心（#9 硬转服务 / 结果契约键）、`unit_warning` 条件、枚举↔标签完整性（`test_enum_labels.py` 防英文 key 漏到报告）、报告 XSS 转义、**控制权角色矩阵**（`test_engine_control_roles.py`）、**控制权板块渲染**（`test_report_control_roles.py`）、**API 返回契约**（`test_api_diagnose_payload.py` 防 SPA 静默丢键，含 `listing_mode`）、**铁律默认归一**（`test_units_iron_rule.py`：`enforce_hardware_no_listing` 设默认净额）、**列收模式分类器**（`test_engine_listing_mode.py` 四模式/级联/两套占比/准入闸/控制权闸/物权否决/listed 派生）、**列收模式板块渲染**（`test_report_listing_mode.py` 四模式/class 白名单/XSS）、**规则与 listing_mode 对齐**（`test_rules_listing_alignment.py` reframe 触发不变/并立共存/版本上调）、**抑制重写**（`test_engine_diagnosis.py` R24/R25 让位 #9、R26 保留物权风险）
+- 覆盖：旧数组报告兼容、v2 核算结构组合与失效范围、单元级列收意图/结果/暂定状态、两套项目口径公式、六到位合法不适用、R08、组合内硬转服务、报告 XSS 与 API 返回契约
 - 新增规则/字段/「动态值→HTML」路径时，同步补一条断言
-- **类型契约红线**：`ai_chat FIELD_DEFINITIONS` 的 `options` 是各字段的真值类型 source-of-truth。bool 字段（如 `hardware_construction`、`supplier_confirmed`、`is_end_user`、`is_capital_investment`）engine/前端必须用 `is True` / `=== true` 比较，不要写 `== "yes"`；字符串字段（如 `has_telecom_capability` 取 `"yes"/"no"/"partial"`）按字段定义的字面值比较。核算单元 `whitelisted` 为三态（`true`/`false`/`"unknown"`），引擎只在 `is True` 时认白名单、`unknown` 保守当非白名单
+- **类型契约红线**：`ai_chat FIELD_DEFINITIONS` 的 `options` 是项目字段真值 source-of-truth。v2 核算结构另以 `accounting_structure.py` 常量为准；`whitelisted` 仅设备/成品软件三态，`unknown` 在拟全额自检中形成 `provisional/high`，不直接当 `false`
 
 ---
 
@@ -224,7 +249,7 @@
 - `.env` 含敏感信息（DeepSeek key、JWT_SECRET、初始 admin 密码），永远不提交 Git；已在 `.gitignore`
 - **CORS 已从 `["*"]` 改为 env 驱动白名单**（`CORS_ALLOWED_ORIGINS`）；生产部署必须显式配置
 - `data/diagnosis.db` 需定期备份
-- 二期规划（N1–N6 逐项举证评分等）见 `docs/phase2-memo-service-capability-level.md`
+- 二期规划（六到位 N1–N6 逐项举证评分等）见 `docs/phase2-memo-service-capability-level.md`
 - 账号与权限模块完整设计见 `docs/auth-and-rbac-design.md`（两份 docs 都 gitignored，是本地参考；不提交是 项目惯例）
 - 领域术语表见 `CONTEXT.md`（**已入库**）：核算单元 / 列收 / 硬转服务 / 准标识符四要素 等
 - ADR 见 `docs/adr/`（gitignored，本地参考）：`0001` 公网脱敏过渡方案、`0002` 按核算单元重构

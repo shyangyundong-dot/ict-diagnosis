@@ -37,8 +37,8 @@ export const fetchFieldDefinitions = () => api.get('/field-definitions')
 export const segmentUnits = (sessionId) =>
   api.post(`/session/${sessionId}/units`, {}, { timeout: 180000 })
 
-export const saveUnits = (sessionId, units) =>
-  api.patch(`/session/${sessionId}/units`, { accounting_units: units })
+export const saveUnits = (sessionId, accountingStructure) =>
+  api.patch(`/session/${sessionId}/units`, { accounting_structure: accountingStructure })
 
 const CONFIRM_TIMEOUT_MS = 600000
 

@@ -34,7 +34,7 @@ def test_result_has_expected_keys():
     for key in (
         "triggered_rules", "tips", "manual_check_rules", "audit_checklist",
         "suppressed_rules", "accounting_units", "hard_to_service",
-        "unit_warning", "overall_risk", "rule_version",
+        "unit_warning", "overall_risk", "rule_version", "material_version",
     ):
         assert key in result, f"结果缺少键 {key}"
 

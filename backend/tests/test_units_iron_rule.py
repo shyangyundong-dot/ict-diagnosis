@@ -60,13 +60,15 @@ def test_normalized_units_restore_r24_r25_suppression():
     assert not any(r["rule_id"] in ("R24", "R25") for r in result["triggered_rules"])
 
 
-def test_all_unit_entrypoints_enforce_iron_rule():
-    """契约扫描：核算单元的三个入库/使用路径都必须调用 enforce_hardware_no_listing
-    （AI 切分草稿 / 用户确认保存 / 提交诊断兜底）。"""
+def test_new_unit_entrypoints_use_versioned_structure_instead_of_iron_rule():
+    """新会话保存意图与派生结果，设备/施工不再在入库时无条件钉死净额。"""
     for fn in (
         router_mod.segment_session_units,
         router_mod.save_session_units,
         router_mod.confirm_and_diagnose,
     ):
         src = inspect.getsource(fn)
-        assert "enforce_hardware_no_listing" in src, f"{fn.__name__} 漏调铁律归一"
+        assert "enforce_hardware_no_listing" not in src
+    assert "structure_from_units" in inspect.getsource(router_mod.segment_session_units)
+    assert "prepare_structure_update" in inspect.getsource(router_mod.save_session_units)
+    assert "validate_structure" in inspect.getsource(router_mod.confirm_and_diagnose)

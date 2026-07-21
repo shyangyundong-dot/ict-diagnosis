@@ -1,4 +1,4 @@
-"""报告渲染：控制权角色自查板块（P2，docs/adr/0003）。
+"""报告渲染：六到位自查板块（P2，docs/adr/0003）。
 
 确保四种 status 各自呈现且 missing/message 经 _esc 转义、status 走白名单。
 """
@@ -6,21 +6,24 @@
 import report_generator as rg
 
 
-def _base_result(ctrl):
-    return {
+def _base_result(ctrl, six_daowei=None):
+    result = {
         "overall_risk": "medium", "overall_risk_label": "中风险",
         "rule_version": "v1.7.2", "ai_enriched": False,
         "triggered_rules": [], "tips": [], "audit_checklist": [], "manual_check_rules": [],
         "accounting_units": [], "hard_to_service": [], "unit_warning": None,
         "control_roles_check": ctrl,
     }
+    if six_daowei is not None:
+        result["six_daowei_check"] = six_daowei
+    return result
 
 
 def test_eligible_renders_green_badge():
     ctrl = {"status": "eligible", "level": "low", "missing": [],
             "message": "电信占据全部必选关键角色及三组二选一各一。"}
     html = rg.generate_report_html(1, "BPM1", _base_result(ctrl), "2026-06-09")
-    assert "控制权角色自查" in html
+    assert "六到位自查" in html
     assert "ctrl-eligible" in html
     assert "✅ 总额法资格成立" in html
 
@@ -58,7 +61,7 @@ def test_no_control_roles_check_section_absent():
     # 用 div class 元素的写法做断言（避开 CSS 定义里的 .ctrl-card 命中）
     assert '<div class="ctrl-card' not in html
     # 板块标题（实际渲染的 section-heading）
-    assert '<div class="section-heading">控制权角色自查' not in html
+    assert '<div class="section-heading">六到位自查' not in html
 
 
 def test_missing_and_message_are_escaped():
@@ -80,3 +83,30 @@ def test_status_class_whitelisted():
     assert "onmouseover" not in html
     # 应回退到 unfilled 白名单
     assert "ctrl-unfilled" in html
+
+
+def test_merged_six_daowei_renders_confirmed_dimensions_and_escapes_basis():
+    ctrl = {"status": "eligible", "level": "low", "missing": [], "message": "角色齐备"}
+    six = {
+        "level": "strong", "level_source": "confirmed", "suggested_level": "medium",
+        "level_mismatch": True, "level_basis": "<script>bad()</script>",
+        "message": "最终以用户确认为准。", "role_check": ctrl,
+        "listing_gate": {
+            "status": "failed", "passed": False,
+            "message": "<svg onload=alert(3)>六到位未通过，只能净额",
+        },
+        "dimensions": [{
+            "key": "six_daowei_customer_insight", "label": "客情掌握到位",
+            "effective": "in_place", "suggested": "pending_evidence", "mismatch": True,
+            "basis": ["<img src=x onerror=alert(1)>"]
+        }],
+    }
+    html = rg.generate_report_html(1, "BPM1", _base_result(ctrl, six), "2026-07-18")
+    assert "六到位综合结论：强（人工确认）" in html
+    assert "客情掌握到位" in html
+    assert "与系统建议不同" in html
+    assert "<script>bad()</script>" not in html
+    assert "&lt;script&gt;bad()&lt;/script&gt;" in html
+    assert "<img src=x onerror" not in html
+    assert "<svg onload" not in html
+    assert "六到位未通过，只能净额" in html

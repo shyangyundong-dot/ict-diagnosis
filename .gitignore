@@ -19,9 +19,16 @@ frontend/dist/
 # 本地生成的代码审查 zip（scripts/make-review-bundle.sh）
 review-bundles/
 
-# 本地/二期备忘录等，不入库
-docs/
+# 本地验证、渲染和导出产物
+tmp/
+outputs/
+
+# 本地/二期备忘录等，不入库；工程技能配置需随仓库共享
+docs/*
+!docs/agents/
+!docs/agents/*.md
 
 # 使用说明 / 公告 Word 由 scripts/usage-doc/*.py 生成，二进制不入库（源头脚本已入库）
 ICT项目合规诊断工具-使用说明.docx
 ICT合规诊断工具-列收模式上线公告.docx
+ICT项目合规诊断工具-v2.1.0升级说明.docx

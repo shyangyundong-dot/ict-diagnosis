@@ -123,9 +123,20 @@ body {
   border-bottom: 1px solid var(--slate-200);
   flex-shrink: 0;
 }
-.app-header-left { display: flex; align-items: center; gap: 18px; }
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.app-header-left::-webkit-scrollbar { display: none; }
 .brand { font-weight: 600; color: var(--slate-800); text-decoration: none; font-size: 15px; }
 .nav-link {
+  flex: 0 0 auto;
   color: var(--slate-600);
   text-decoration: none;
   font-size: 13px;
@@ -136,7 +147,7 @@ body {
 .nav-link.router-link-active { color: var(--blue-700); background: var(--blue-50); }
 .nav-sep { color: var(--slate-300); font-size: 12px; user-select: none; }
 
-.app-header-right { display: flex; align-items: center; gap: 10px; }
+.app-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; white-space: nowrap; }
 .user-chip {
   display: inline-flex;
   align-items: center;
@@ -163,4 +174,13 @@ body {
 }
 .header-action:hover { background: var(--slate-100); color: var(--slate-800); }
 .header-action.danger:hover { background: var(--red-50); color: var(--red-600); }
+
+@media (max-width: 640px) {
+  .app-header { padding: 0 10px; gap: 8px; }
+  .app-header-left { gap: 6px; }
+  .nav-link { padding: 4px 6px; }
+  .app-header-right { gap: 4px; }
+  .user-chip { display: none; }
+  .header-action { padding: 4px 6px; }
+}
 </style>

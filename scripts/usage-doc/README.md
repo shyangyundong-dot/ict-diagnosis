@@ -5,6 +5,7 @@
 ## 文件
 
 - `generate.py` —— 用 python-docx 拼装 Word（封面 / 目录 / 十章正文 / 内嵌截图）
+- `generate_v2_1_update.py` —— 生成《v2.1.0 升级说明》（核算单元 v2 / 单元级列收自检 / 材料目录）
 - `screenshots/` —— 文档引用的界面截图（脚本按文件名引用）
 
 ## 重新生成
@@ -13,9 +14,12 @@
 pip install python-docx
 python scripts/usage-doc/generate.py
 # 产物：仓库根 ICT项目合规诊断工具-使用说明.docx（gitignored）
+
+python scripts/usage-doc/generate_v2_1_update.py
+# 产物：仓库根 ICT项目合规诊断工具-v2.1.0升级说明.docx（gitignored）
 ```
 
-路径都相对脚本自身，clone 后可直接跑。改文字只动 `generate.py`（纯文本 diff）。
+路径都相对脚本自身，clone 后可直接跑。改文字只动对应的 `generate*.py`（纯文本 diff）。
 
 ## 更新截图
 

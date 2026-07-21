@@ -60,6 +60,7 @@ def test_hard_to_service_fields_escaped():
     html = rg.generate_report_html(1, "BPM1", result, "2026-06-07")
     for raw in ("<script>x</script>", "<b>signal</b>", "<i>msg</i>", "<u>ev</u>"):
         assert raw not in html, f"硬转服务字段未转义：{raw}"
+    assert "历史材料" in html
 
 
 def test_suspicion_level_class_is_whitelisted():

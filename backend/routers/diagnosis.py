@@ -13,8 +13,18 @@ from models.diagnosis import DiagnosisRecord, ChatSession, DissentRecord, Line, 
 from rules.engine import (
     run_diagnosis,
     RULE_VERSION,
+    MATERIAL_VERSION,
     get_realtime_warnings,
-    enforce_hardware_no_listing,
+    assess_six_daowei,
+)
+from accounting_structure import (
+    derive_final_units,
+    invalidate_full_unit_checks,
+    is_v2_structure,
+    normalize_structure,
+    prepare_structure_update,
+    structure_from_units,
+    validate_structure,
 )
 from ai_chat import (
     chat_with_ai,
@@ -31,6 +41,13 @@ from report_generator import generate_report_html, generate_pdf
 from ai_report import enrich_diagnosis_with_ai
 
 router = APIRouter(prefix="/api")
+
+_SHARED_CHECK_FIELDS = {
+    "control_roles", "service_delivery_mode", "contract_matches_bpm", "related_party",
+    "customer_type", "scheme_reviewed", "procurement_method", "acceptance_content_same",
+    "project_location", "has_telecom_capability", "capability_ratio", "logistics_control",
+    "payment_terms", "ownership_transfer", "collective_procurement_ratio",
+}
 
 
 # ── 权限辅助 ──────────────────────────────────────────────────
@@ -87,6 +104,42 @@ def can_resume_session(user: User, session: ChatSession) -> bool:
     return session.created_by is not None and session.created_by == user.id
 
 
+def _six_daowei_for_session(session: ChatSession, fields: dict) -> dict:
+    """给填报面板返回与诊断引擎同源的六到位建议。"""
+    try:
+        units = json.loads(session.accounting_units_json or "[]")
+    except (TypeError, ValueError):
+        units = []
+    if is_v2_structure(units):
+        return None
+    has_hardware = fields.get("hardware_construction") is True or any(
+        isinstance(u, dict) and u.get("declared_type") in {"设备", "施工"}
+        for u in units
+    )
+    wants_full = fields.get("service_delivery_mode") in {"all_telecom", "mixed"} or (
+        fields.get("has_telecom_capability") in {"yes", "partial"}
+        and fields.get("capability_ratio") in {"medium", "high"}
+    )
+    return assess_six_daowei(fields, has_hardware=has_hardware, wants_full=wants_full)
+
+
+def _load_accounting_payload(session: ChatSession):
+    try:
+        return json.loads(session.accounting_units_json or "[]")
+    except (TypeError, ValueError):
+        return []
+
+
+def _invalidate_structure_if_shared_facts_changed(session: ChatSession, before: dict, after: dict) -> None:
+    if not any(before.get(key) != after.get(key) for key in _SHARED_CHECK_FIELDS):
+        return
+    payload = _load_accounting_payload(session)
+    if is_v2_structure(payload):
+        session.accounting_units_json = json.dumps(
+            invalidate_full_unit_checks(payload), ensure_ascii=False,
+        )
+
+
 # ── Pydantic 模型 ──────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
@@ -140,6 +193,7 @@ async def chat(
 
     messages: list = json.loads(session.messages_json)
     current_fields: dict = json.loads(session.extracted_fields_json)
+    fields_before = dict(current_fields)
 
     if body.fields is not None:
         current_fields.update(body.fields)
@@ -157,6 +211,7 @@ async def chat(
     new_fields = ai_result.get("extracted", {})
     current_fields.update({k: v for k, v in new_fields.items() if v is not None})
     normalize_project_type_field(current_fields)
+    _invalidate_structure_if_shared_facts_changed(session, fields_before, current_fields)
 
     missing = get_missing_fields(current_fields)
     is_complete = len(missing) == 0
@@ -187,6 +242,10 @@ async def chat(
         "is_complete": is_complete,
         "status": session.status,
         "realtime_warnings": realtime_warnings,
+        "six_daowei_check": _six_daowei_for_session(session, current_fields),
+        "accounting_structure": (
+            _load_accounting_payload(session) if is_v2_structure(_load_accounting_payload(session)) else None
+        ),
         # AI 来源标注：本轮新提取的字段键列表，前端用于标黄
         "ai_extracted_keys": list(new_fields.keys()),
     }
@@ -205,8 +264,10 @@ async def patch_session_fields(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     current_fields: dict = json.loads(session.extracted_fields_json)
+    fields_before = dict(current_fields)
     current_fields.update(body.fields)
     normalize_project_type_field(current_fields)
+    _invalidate_structure_if_shared_facts_changed(session, fields_before, current_fields)
 
     missing = get_missing_fields(current_fields)
     is_complete = len(missing) == 0
@@ -230,6 +291,10 @@ async def patch_session_fields(
         "is_complete": is_complete,
         "status": session.status,
         "realtime_warnings": realtime_warnings,
+        "six_daowei_check": _six_daowei_for_session(session, current_fields),
+        "accounting_structure": (
+            _load_accounting_payload(session) if is_v2_structure(_load_accounting_payload(session)) else None
+        ),
     }
 
 
@@ -246,15 +311,22 @@ async def segment_session_units(
 
     messages: list = json.loads(session.messages_json)
     units = await segment_accounting_units(messages)
-    # 铁律不列收（#8）：AI 草稿可能给硬件单元漏标 listed，数据层强制归一
-    enforce_hardware_no_listing(units)
-    session.accounting_units_json = json.dumps(units, ensure_ascii=False)
+    structure = structure_from_units(units)
+    session.accounting_units_json = json.dumps(structure, ensure_ascii=False)
     db.commit()
-    return {"session_id": session_id, "accounting_units": units}
+    fields = json.loads(session.extracted_fields_json or "{}")
+    return {
+        "session_id": session_id,
+        "accounting_structure": structure,
+        "accounting_units": structure["source_units"],
+        "final_units": derive_final_units(structure),
+        "six_daowei_check": None,
+    }
 
 
 class UnitsSubmit(BaseModel):
-    accounting_units: list
+    accounting_structure: dict | None = None
+    accounting_units: list | None = None
 
 
 @router.patch("/session/{session_id}/units")
@@ -269,10 +341,24 @@ async def save_session_units(
     if not session or not can_resume_session(user, session):
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    units = enforce_hardware_no_listing(body.accounting_units)  # 铁律不列收（#8）数据层归一
-    session.accounting_units_json = json.dumps(units, ensure_ascii=False)
+    previous = _load_accounting_payload(session)
+    incoming = body.accounting_structure
+    if incoming is None:
+        incoming = structure_from_units(body.accounting_units or [])
+    structure = prepare_structure_update(previous, incoming)
+    errors = validate_structure(structure, for_submit=False)
+    if errors:
+        raise HTTPException(status_code=400, detail="；".join(errors))
+    session.accounting_units_json = json.dumps(structure, ensure_ascii=False)
     db.commit()
-    return {"session_id": session_id, "accounting_units": units}
+    fields = json.loads(session.extracted_fields_json or "{}")
+    return {
+        "session_id": session_id,
+        "accounting_structure": structure,
+        "accounting_units": structure["source_units"],
+        "final_units": derive_final_units(structure),
+        "six_daowei_check": None,
+    }
 
 
 @router.get("/field-definitions")
@@ -318,14 +404,13 @@ async def confirm_and_diagnose(
     else:
         raise HTTPException(status_code=400, detail="project_type 为必填项，请先确认项目类型")
 
-    try:
-        accounting_units = json.loads(session.accounting_units_json or "[]")
-    except Exception:
-        accounting_units = []
-    # 铁律不列收（#8）兜底：存量会话可能残留归一前的硬件单元，诊断与落库快照都用归一后数据
-    enforce_hardware_no_listing(accounting_units)
-    session.accounting_units_json = json.dumps(accounting_units, ensure_ascii=False)
-    result = run_diagnosis(pt_for_rules, fields_for_diagnosis, accounting_units=accounting_units)
+    accounting_payload = _load_accounting_payload(session)
+    accounting_structure = normalize_structure(accounting_payload)
+    structure_errors = validate_structure(accounting_structure, for_submit=True)
+    if structure_errors:
+        raise HTTPException(status_code=400, detail="；".join(structure_errors))
+    session.accounting_units_json = json.dumps(accounting_structure, ensure_ascii=False)
+    result = run_diagnosis(pt_for_rules, fields_for_diagnosis, accounting_units=accounting_structure)
 
     chat_history = None
     if session:
@@ -366,6 +451,7 @@ async def confirm_and_diagnose(
         "manual_check_rules": result.get("manual_check_rules", []),
         "audit_checklist": result["audit_checklist"],
         "rule_version": result["rule_version"],
+        "material_version": result.get("material_version", MATERIAL_VERSION),
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
         # 与 /api/diagnose/{id} 保持 result 键一致（前端 confirm 后只用 diagnosis_id 跳 /report/:id
         # 让 ReportView 重新拉，故当前不依赖；补齐防未来其他客户端直接用 confirm 返回时再踩坑）
@@ -373,11 +459,16 @@ async def confirm_and_diagnose(
         "segments": result.get("segments"),
         "is_mixed_project": result.get("is_mixed_project", False),
         "accounting_units": result.get("accounting_units", []),
+        "accounting_structure": result.get("accounting_structure"),
         "suppressed_rules": result.get("suppressed_rules", []),
         "hard_to_service": result.get("hard_to_service", []),
         "unit_warning": result.get("unit_warning"),
         "control_roles_check": result.get("control_roles_check"),
+        "six_daowei_check": result.get("six_daowei_check"),
+        "six_daowei_checks": result.get("six_daowei_checks", []),
+        "r08_checks": result.get("r08_checks", []),
         "listing_mode": result.get("listing_mode"),
+        "advisory_only": result.get("advisory_only", False),
     }
 
 
@@ -561,6 +652,10 @@ async def get_diagnosis_traceability(
             chat_messages = []
 
     fields_display = build_fields_display(confirmed_fields) if confirmed_fields else []
+    try:
+        accounting_snapshot = json.loads(record.accounting_units_json or "[]")
+    except Exception:
+        accounting_snapshot = []
 
     return {
         "diagnosis_id": record.id,
@@ -572,6 +667,8 @@ async def get_diagnosis_traceability(
         "fields_display": fields_display,
         "chat_messages": chat_messages,
         "has_chat_snapshot": bool(chat_messages),
+        "accounting_structure": accounting_snapshot if is_v2_structure(accounting_snapshot) else None,
+        "accounting_units": accounting_snapshot if isinstance(accounting_snapshot, list) else [],
     }
 
 
@@ -596,20 +693,26 @@ async def get_diagnosis(
         "tips": result.get("tips", []),
         "audit_checklist": result.get("audit_checklist", []),
         "rule_version": record.rule_version,
+        "material_version": result.get("material_version", "历史目录"),
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
         "segments": result.get("segments"),
         "manual_check_rules": result.get("manual_check_rules", []),
         "ai_enriched": result.get("ai_enriched", False),
         "is_mixed_project": result.get("is_mixed_project", False),
         "accounting_units": result.get("accounting_units", []),
+        "accounting_structure": result.get("accounting_structure"),
         "suppressed_rules": result.get("suppressed_rules", []),
         "hard_to_service": result.get("hard_to_service", []),
-        # 以下三键之前漏传给 SPA，导致 /report/:id 静默丢失「核算单元未切分黄条」(ADR 0002)、
-        # 「控制权角色自查」板块 (ADR 0003) 与「列收模式判定」板块 (ADR 0004)——
+        # 以下四键之前漏传给 SPA 会导致 /report/:id 静默丢失「核算单元未切分黄条」(ADR 0002)、
+        # 「六到位自查」板块 (ADR 0003) 与「列收模式判定」板块 (ADR 0004)——
         # HTML/PDF 直链报告不受影响（generate_report_html 直接读 result）
         "unit_warning": result.get("unit_warning"),
         "control_roles_check": result.get("control_roles_check"),
+        "six_daowei_check": result.get("six_daowei_check"),
+        "six_daowei_checks": result.get("six_daowei_checks", []),
+        "r08_checks": result.get("r08_checks", []),
         "listing_mode": result.get("listing_mode"),
+        "advisory_only": result.get("advisory_only", False),
     }
 
 
@@ -659,4 +762,4 @@ async def get_report_pdf(
 
 @router.get("/health")
 async def health():
-    return {"status": "ok", "rule_version": RULE_VERSION}
+    return {"status": "ok", "rule_version": RULE_VERSION, "material_version": MATERIAL_VERSION}
