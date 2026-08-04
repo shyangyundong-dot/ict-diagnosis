@@ -1,20 +1,18 @@
 <template>
   <div class="layout">
 
-    <!-- 左侧：对话区 -->
-    <div class="chat-panel">
+    <!-- 次级：AI 助填区。规则诊断只会在表单提交后发生。 -->
+    <aside class="chat-panel" :class="{ 'drawer-open': drawerOpen }">
       <div class="chat-header">
         <div class="header-logo">
           <div class="logo-icon">🛡</div>
           <div>
-            <div class="logo-title">ICT项目合规诊断</div>
-            <div class="logo-sub">广州电信云中台</div>
+            <div class="logo-title">AI 助填</div>
+            <div class="logo-sub">可选 · 不执行规则诊断</div>
           </div>
         </div>
         <div class="header-actions">
-          <router-link to="/lookup" class="lookup-link">按 BPM 查历史</router-link>
-          <router-link to="/trace" class="lookup-link">填报溯源</router-link>
-          <button class="new-chat-btn" @click="resetChat">＋ 新建诊断</button>
+          <button type="button" class="assistant-close" @click="closeDrawer">收起助填</button>
         </div>
       </div>
 
@@ -23,9 +21,9 @@
         <!-- 欢迎消息 -->
         <div v-if="messages.length === 0" class="welcome-card">
           <div class="welcome-icon">👋</div>
-          <h2>你好！我是合规诊断助手</h2>
-          <p>请用<strong>自然语言</strong>描述你的项目，我会逐步引导你完成信息收集，然后生成合规风险诊断报告。</p>
-          <p class="welcome-example">例如："我有一个给番禺某国企做的系统集成项目，预算500万，后向供应商还没定，毛利大概4%左右..."</p>
+          <h2>AI 只负责助填</h2>
+          <p>可粘贴一整段项目描述，我会把能确定的信息预填到表单中；请逐项核对后再提交。</p>
+          <p class="welcome-example">不会在这里给出风险等级、列收结论或诊断结果。</p>
         </div>
 
         <template v-for="(msg, idx) in messages" :key="idx">
@@ -38,6 +36,12 @@
           <div v-else class="msg-row ai-row">
             <div class="avatar ai-avatar">🛡</div>
             <div class="msg-bubble ai-bubble" v-html="formatAiMsg(msg.content)"></div>
+            <button v-if="msg.help?.suggestedValue !== null && msg.help?.suggestedValue !== undefined"
+                    type="button" class="apply-ai-suggestion"
+                    :disabled="msg.help.applied"
+                    @click="applyFieldSuggestion(msg.help)">
+              {{ msg.help.applied ? '已填入 · 待本步核对' : `填入「${getFieldLabel(msg.help.fieldKey)}」` }}
+            </button>
           </div>
         </template>
 
@@ -52,95 +56,114 @@
 
       <!-- 输入区 -->
       <div class="chat-input-area">
-        <div v-if="isComplete" class="complete-hint">
-          ✅ 信息已收集完整，请在右侧核对字段后提交；修改字段后可再次提交以生成新报告。
+        <div v-if="fieldHelpTarget" class="field-help-context">
+          正在协助填写：<strong>{{ getFieldLabel(fieldHelpTarget) }}</strong>
+          <button type="button" @click="clearFieldHelp">改为整段预填</button>
+        </div>
+        <div v-else class="complete-hint">
+          可选：粘贴项目描述，AI 会预填明确事实；未确认的值不能提交诊断。
         </div>
         <div class="input-row">
           <textarea
             ref="inputRef"
             v-model="inputText"
-            :placeholder="isComplete ? '可以继续补充说明，或直接在右侧修改字段后再次提交...' : '描述你的项目...'"
-            @keydown.enter.exact.prevent="sendMessage"
+            :placeholder="fieldHelpTarget ? `请描述「${getFieldLabel(fieldHelpTarget)}」的实际情况...` : '可选：粘贴项目描述，AI 帮你预填表单…'"
+            @keydown.enter.exact.prevent="sendAssist"
             @input="adjustTextareaHeight"
             rows="1"
             class="chat-textarea"
             :disabled="loading"
           ></textarea>
-          <button class="send-btn" @click="sendMessage" :disabled="loading || !inputText.trim()">
+          <button class="send-btn" @click="sendAssist" :disabled="loading || !inputText.trim()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
             </svg>
           </button>
         </div>
-        <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
+        <div class="input-hint">Enter 发送 · AI 输出仅为填写建议</div>
       </div>
-    </div>
+    </aside>
 
-    <!-- 右侧：先展示已解析确认项，再展示待补充项（移动端为底部抽屉，DOM 共用） -->
-    <div class="fields-panel" :class="{ 'drawer-open': drawerOpen }">
+    <!-- 主区域：项目事实表 -->
+    <div class="fields-panel">
       <div class="drawer-handle-bar">
         <div class="drawer-handle"></div>
         <button type="button" class="drawer-close" @click="closeDrawer">✕</button>
       </div>
       <div class="fields-header">
         <div class="fields-header-text">
-          <span class="fields-header-title">信息解析</span>
-          <span class="fields-header-desc">发送后自动解析，请核对已确认项与待补充项</span>
+          <span class="fields-header-title">新建诊断 · 项目事实表</span>
+          <span class="fields-header-desc">先填写并确认项目事实；仅在提交后执行规则库诊断。</span>
         </div>
-        <span class="fields-count" :class="isComplete ? 'count-done' : 'count-pending'">
-          {{ isComplete ? '✅ 可提交诊断' : `待补充 ${missingFields.length} 项` }}
-        </span>
+        <div class="fields-header-actions">
+          <span class="fields-count" :class="isComplete ? 'count-done' : 'count-pending'">
+            {{ isComplete ? '✅ 可运行规则诊断' : `待完成 ${pendingTotal} 项` }}
+          </span>
+          <button type="button" class="new-chat-btn" @click="resetChat">＋ 新建诊断</button>
+        </div>
       </div>
 
-      <!-- 实时预警气泡（规格 §12.1） -->
-      <div v-if="realtimeWarnings.length > 0" class="warning-panel">
-        <div v-for="(w, i) in realtimeWarnings" :key="i"
-             class="warning-bubble"
-             :class="w.level === 'high' ? 'warning-high' : 'warning-medium'">
-          {{ w.message }}
-        </div>
+      <div class="diagnosis-stages" aria-label="诊断流程">
+        <span class="stage-active">1 填写并核对</span><span>2 规则库诊断</span><span>3 正式报告</span>
       </div>
 
       <div class="fields-body">
         <div v-if="!sessionId" class="fields-empty">
           <div class="empty-icon">💬</div>
-          <p>开始对话并发送后，已解析的字段会出现在下方「已解析并确认的信息」中。</p>
+          <p>正在创建填写草稿…</p>
         </div>
 
         <template v-else>
-          <!-- ① 已解析并确认的信息 -->
-          <section class="fields-section">
+          <nav class="form-step-nav" aria-label="填报步骤">
+            <button v-for="step in FORM_STEPS" :key="step.id" type="button"
+                    :class="{ active: activeStep === step.id }" @click="activeStep = step.id">
+              <strong>{{ step.label }}</strong><span>{{ stepStatus(step.id) }}</span>
+            </button>
+          </nav>
+
+          <!-- 1. 基础与商务信息 -->
+          <section v-if="activeStep === 1" class="fields-section primary-form-section">
             <div class="section-head">
-              <span class="section-head-title">已解析并确认的信息</span>
-              <span v-if="!loading && parsedFieldKeys.length > 0" class="section-head-meta">{{ parsedFieldKeys.length }} 项</span>
+              <span class="section-head-title">1. 基础与商务信息</span>
+              <span class="section-head-meta">先选项目类型，再填写适用字段</span>
             </div>
-            <div v-if="loading" class="section-parsing">
-              <span class="parsing-dot"></span>
-              正在解析本段内容…
-            </div>
-            <div v-if="!loading && parsedFieldKeys.length === 0 && sessionId" class="section-empty">
-              尚未解析出结构化字段。请继续描述，并尽量包含
-              <strong>项目类型、BPM 编号、前向客户类型、后向采购方式</strong> 等关键信息；也可在下方待补充区直接选择。
-            </div>
-            <div v-if="parsedFieldKeys.length > 0" class="field-list">
-              <div v-for="key in parsedFieldKeys" :key="key" class="field-item"
-                   :class="aiExtractedKeys.has(key) ? 'field-item-ai' : ''">
-                <div class="field-label">
-                  {{ getFieldLabel(key) }}
-                  <span v-if="aiExtractedKeys.has(key)" class="ai-src-tag">AI 提取</span>
+            <div class="form-subgroups">
+              <section v-for="group in generalFieldGroups" :key="group.id" class="form-subgroup">
+                <div class="form-subgroup-head">
+                  <div>
+                    <span class="form-subgroup-index">{{ group.step }}</span>
+                    <strong>{{ group.title }}</strong>
+                  </div>
+                  <span>{{ group.description }}</span>
                 </div>
-                <FieldControl
-                  :field-key="key"
-                  :model-value="currentFields[key]"
-                  :definitions="fieldDefinitions"
-                  @update:model-value="(v) => onFieldUpdate(key, v)"
-                />
-              </div>
+                <div class="form-field-grid">
+                  <div v-for="key in group.fields" :key="key" class="field-item"
+                       :class="{ 'field-item-ai': isFieldAiPending(key) }">
+                    <div class="field-label">
+                      {{ getFieldLabel(key) }}
+                      <button type="button" class="field-help-btn" @click="openFieldHelp(key)">问 AI</button>
+                      <span v-if="isFieldAiPending(key)" class="ai-src-tag">AI 预填 · 待核对</span>
+                      <span v-else-if="isFieldAiAssisted(key)" class="ai-confirmed-tag">AI 助填 · 已核对</span>
+                    </div>
+                    <FieldControl
+                      :field-key="key"
+                      :model-value="currentFields[key]"
+                      :definitions="fieldDefinitions"
+                      @update:model-value="(v) => onFieldUpdate(key, v)"
+                    />
+                  </div>
+                </div>
+              </section>
             </div>
+            <div v-if="stepPendingFields(1).length" class="step-review-band">
+              <span>请核对本步骤的 {{ stepPendingFields(1).length }} 项 AI 预填内容。</span>
+              <button type="button" class="units-segment-btn" @click="confirmStepAiFields(1)">确认本步 AI 预填</button>
+            </div>
+            <p v-else-if="generalMissingFields.length" class="structure-pending">还缺 {{ generalMissingFields.length }} 项必填信息；可直接填写或使用右侧 AI 助填。</p>
           </section>
 
           <!-- 1. 原始业务单元 -->
-          <section class="fields-section units-section">
+          <section v-if="activeStep === 2" class="fields-section units-section">
             <div class="section-head">
               <span class="section-head-title">1. 原始业务单元</span>
               <button class="units-segment-btn" :disabled="unitsLoading" @click="doSegmentUnits">
@@ -202,12 +225,16 @@
                 <div v-if="u.reason" class="unit-reason">{{ u.reason }}</div>
               </div>
             </div>
+            <div v-if="sourceUnitsNeedReview" class="step-review-band">
+              <span>AI 切分的原始业务单元仍是草稿，请核对业务实质、类型和金额。</span>
+              <button type="button" class="units-segment-btn" @click="confirmSourceUnits">确认原始业务单元</button>
+            </div>
             <button v-if="accountingUnits.length > 0 || sessionId" class="units-add-btn" @click="addUnit">＋ 添加原始单元</button>
             <p v-if="unitsSaveError" class="units-save-error">⚠ {{ unitsSaveError }}</p>
           </section>
 
           <!-- 2. 履约关系与组合 -->
-          <section v-if="accountingUnits.length" class="fields-section grouping-section">
+          <section v-if="activeStep === 2 && accountingUnits.length" class="fields-section grouping-section">
             <div class="section-head">
               <span class="section-head-title">2. 履约关系与组合</span>
               <button class="units-segment-btn" @click="addGroup">新增候选组合</button>
@@ -247,7 +274,7 @@
           </section>
 
           <!-- 3. 最终核算单元与列收意图 -->
-          <section v-if="finalUnits.length" class="fields-section final-units-section">
+          <section v-if="activeStep === 2 && finalUnits.length" class="fields-section final-units-section">
             <div class="section-head">
               <span class="section-head-title">3. 最终核算单元与列收意图</span>
               <span class="section-head-meta">{{ finalUnits.length }} 个</span>
@@ -267,12 +294,12 @@
           </section>
 
           <!-- 4. 拟全额核算单元自查 -->
-          <section v-if="fullIntentUnits.length" class="fields-section ctrl-roles-section">
+          <section v-if="activeStep === 3 && fullIntentUnits.length" class="fields-section ctrl-roles-section">
             <div class="section-head">
               <span class="section-head-title">4. 拟全额核算单元自查</span>
               <span class="section-head-meta ctrl-roles-meta">共性事实一次填写 · 单元分别确认</span>
             </div>
-            <div class="ctrl-roles-hint">证据未齐仍可出报告，按暂定全额和高风险提示；本工具只列标准证据清单，不上传附件、不要求说明。</div>
+            <div class="ctrl-roles-hint">按实际控制权和交付事实逐项确认。本页只记录事实；规则结论和材料清单会在提交后生成。</div>
             <div class="shared-facts-title">项目共性事实</div>
             <div v-for="grp in ROLE_GROUPS" :key="grp.title"
                  v-show="grp.kind !== 'mandatory_hw' || hasHardware"
@@ -335,7 +362,7 @@
           </section>
 
           <!-- 5. 公共政策信息 -->
-          <section v-if="needsPolicyFields" class="fields-section listing-fields-section">
+          <section v-if="activeStep === 3 && (needsPolicyFields || visibleListingFields.length)" class="fields-section listing-fields-section">
             <div class="section-head">
               <span class="section-head-title">5. 公共政策信息</span>
               <span class="section-head-meta listing-fields-meta">整个 BPM 项目口径</span>
@@ -344,8 +371,13 @@
               <p>仅在拟全额单元含设备、成品软件或施工时显示。金额占比和整体利润率按整个 BPM 项目计算。</p>
             </div>
             <div class="listing-fields-list">
-              <div v-for="key in LISTING_FIELDS" :key="key" class="listing-field-row">
-                <div class="listing-field-label">{{ getFieldLabel(key) }}</div>
+              <div v-for="key in visibleListingFields" :key="key" class="listing-field-row"
+                   :class="{ 'field-item-ai': isFieldAiPending(key) }">
+                <div class="listing-field-label">
+                  {{ getFieldLabel(key) }}
+                  <button type="button" class="field-help-btn" @click="openFieldHelp(key)">问 AI</button>
+                  <span v-if="isFieldAiPending(key)" class="ai-src-tag">AI 预填 · 待核对</span>
+                </div>
                 <FieldControl
                   :field-key="key"
                   :model-value="currentFields[key]"
@@ -354,10 +386,14 @@
                 />
               </div>
             </div>
+            <div v-if="stepPendingFields(3).length" class="step-review-band">
+              <span>请核对本步骤的 {{ stepPendingFields(3).length }} 项 AI 预填内容。</span>
+              <button type="button" class="units-segment-btn" @click="confirmStepAiFields(3)">确认本步 AI 预填</button>
+            </div>
           </section>
 
           <!-- ② 待补充信息 -->
-          <section v-if="isComplete || generalMissingFields.length > 0 || !structureReady" class="fields-section section-pending-block">
+          <section v-if="false" class="fields-section section-pending-block">
             <div class="section-head">
               <span class="section-head-title">待补充信息</span>
               <span
@@ -395,6 +431,29 @@
               暂无待补充清单，请再发送一条消息或检查网络与 API 配置。
             </div>
           </section>
+
+          <!-- 4. 最终核对：此处不显示风险结论，只汇总事实完成状态。 -->
+          <section v-if="activeStep === 4" class="fields-section final-review-section">
+            <div class="section-head">
+              <span class="section-head-title">4. 最终核对</span>
+              <span class="section-head-meta">完成后才执行规则库</span>
+            </div>
+            <div class="review-status-row">
+              <span>基础与商务信息</span>
+              <strong>{{ stepStatus(1) }}</strong>
+            </div>
+            <div class="review-status-row">
+              <span>核算结构与列收意图</span>
+              <strong>{{ stepStatus(2) }}</strong>
+            </div>
+            <div class="review-status-row">
+              <span>拟全额核算单元自查</span>
+              <strong>{{ stepStatus(3) }}</strong>
+            </div>
+            <p class="final-review-note">
+              {{ isComplete ? '项目事实已完成核对。提交后，系统才会运行规则库并生成正式报告。' : completionBlocker }}
+            </p>
+          </section>
         </template>
       </div>
 
@@ -411,15 +470,15 @@
         >
           <span v-if="submitting">⏳ 诊断中...</span>
           <span v-else-if="isComplete && diagnosisId">🔄 再次提交并生成报告</span>
-          <span v-else-if="isComplete">🚀 提交诊断</span>
-          <span v-else>请先完成信息收集</span>
+          <span v-else-if="isComplete">🛡 运行规则诊断并生成报告</span>
+          <span v-else>请先完成事实填写与核对</span>
         </button>
 
         <div v-if="submitting && submittingHint" class="submitting-hint">{{ submittingHint }}</div>
 
         <div v-if="diagnosisId" class="report-actions">
-          <a :href="`/report/${diagnosisId}`" target="_blank" class="report-link">
-            📄 在新窗口查看报告
+          <a :href="`/report/${diagnosisId}`" class="report-link">
+            📄 查看正式报告
           </a>
           <button class="report-link pdf-link" type="button" :disabled="downloadingPdf" @click="onDownloadPdf">
             {{ downloadingPdf ? '下载中...' : '⬇️ 下载报告' }}
@@ -435,8 +494,7 @@
       :class="isComplete ? 'drawer-trigger--complete' : 'drawer-trigger--incomplete'"
       @click="openDrawer"
     >
-      <span v-if="isComplete">✅ 可提交诊断</span>
-      <span v-else>📋 字段信息 · 待补充 {{ pendingTotal }} 项</span>
+      <span>✨ 打开 AI 助填</span>
     </button>
 
   </div>
@@ -445,7 +503,7 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue'
 import FieldControl from '../components/FieldControl.vue'
-import { sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, downloadReportPdf, segmentUnits, saveUnits } from '../api/diagnosis.js'
+import { createSession, sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, getFieldHelp, downloadReportPdf, segmentUnits, saveUnits } from '../api/diagnosis.js'
 
 const FIELD_LABELS = {
   bpm_id: 'BPM商机编号', project_type: '项目类型', customer_type: '前向客户类型',
@@ -480,6 +538,20 @@ const sessionId = ref(null)
 const missingFields = ref([])
 const diagnosisId = ref(null)
 const downloadingPdf = ref(false)
+const fieldReview = ref({ schema_version: 1, fields: {} })
+const activeStep = ref(1)
+const fieldHelpTarget = ref(null)
+
+const pendingAiFields = computed(() => Object.entries(fieldReview.value?.fields || {})
+  .filter(([, entry]) => ['ai_bulk', 'ai_field_help'].includes(entry?.source) && entry?.status === 'pending')
+  .map(([key]) => key))
+
+const FORM_STEPS = [
+  { id: 1, label: '1 基础信息' },
+  { id: 2, label: '2 核算结构' },
+  { id: 3, label: '3 全额资格自查' },
+  { id: 4, label: '4 最终核对' },
+]
 
 async function onDownloadPdf() {
   if (!diagnosisId.value || downloadingPdf.value) return
@@ -493,13 +565,8 @@ async function onDownloadPdf() {
   }
 }
 const fieldDefinitions = ref({})
-// 实时预警（规格 §12.1）
-const realtimeWarnings = ref([])
-// AI 提取的字段键集合（本轮累计，用于标注来源）
-const aiExtractedKeys = ref(new Set())
-
 const isComplete = computed(() =>
-  sessionId.value != null && missingFields.value.length === 0 && structureReady.value
+  sessionId.value != null && missingFields.value.length === 0 && pendingAiFields.value.length === 0 && structureReady.value
 )
 const currentFields = ref({})
 const messagesRef = ref(null)
@@ -511,7 +578,7 @@ function closeDrawer() { drawerOpen.value = false }
 
 // ── 核算结构 v2：原始单元 → 组合 → 最终核算单元 → 单元级自查 ──
 function emptyStructure() {
-  return { schema_version: 2, source_units: [], groups: [], decisions: {}, archived_decisions: [] }
+  return { schema_version: 2, source_units: [], source_units_review_status: 'confirmed', groups: [], decisions: {}, archived_decisions: [] }
 }
 const accountingStructure = ref(emptyStructure())
 const accountingUnits = computed(() => accountingStructure.value.source_units || [])
@@ -574,6 +641,7 @@ function emptyDecision(isStandard = false) {
 function normalizeStructure(raw) {
   const structure = raw?.schema_version === 2 ? structuredClone(raw) : emptyStructure()
   structure.source_units ||= []
+  structure.source_units_review_status = structure.source_units_review_status === 'pending' ? 'pending' : 'confirmed'
   structure.groups ||= []
   structure.decisions ||= {}
   structure.archived_decisions ||= []
@@ -641,9 +709,17 @@ const fullIntentUnits = computed(() => finalUnits.value.filter((unit) => unit.de
 const needsPolicyFields = computed(() => fullIntentUnits.value.some((unit) =>
   unit.declared_types.some((type) => ['设备', '成品软件', '施工'].includes(type))
 ))
+// 即使当前核算结构不需要项目口径字段，也要让用户能看见并处理
+// 整段 AI 预填产生的值；否则会留下无法确认、也无法提交的待确认项。
+const visibleListingFields = computed(() => needsPolicyFields.value
+  ? LISTING_FIELDS
+  : LISTING_FIELDS.filter((key) => currentFields.value[key] !== undefined || isFieldAiPending(key))
+)
 const groupableSources = computed(() => accountingUnits.value.filter((source) => source.declared_type !== '标品'))
+const sourceUnitsNeedReview = computed(() => accountingStructure.value.source_units_review_status === 'pending')
 const structureReady = computed(() => {
   if (!accountingUnits.value.length || accountingUnits.value.some((source) => source.declared_type === '其他')) return false
+  if (sourceUnitsNeedReview.value) return false
   for (const group of accountingGroups.value) {
     if ((group.source_unit_ids || []).length < 2) return false
     if (PO_QUESTIONS.some((question) => !['yes', 'no'].includes(group.po_facts?.[question.key]))) return false
@@ -664,6 +740,12 @@ async function doSegmentUnits() {
   } finally {
     unitsLoading.value = false
   }
+}
+
+function confirmSourceUnits() {
+  if (!accountingUnits.value.length) return
+  accountingStructure.value.source_units_review_status = 'confirmed'
+  persistUnits()
 }
 
 function onUnitTypeChange(u) {
@@ -833,8 +915,90 @@ const generalMissingFields = computed(() =>
   missingFields.value.filter(key => !DEDICATED_FIELDS.has(key))
 )
 
+const generalFormFields = computed(() => {
+  const keys = new Set(['project_type', ...Object.keys(currentFields.value), ...generalMissingFields.value])
+  return Object.keys(fieldDefinitions.value).filter((key) =>
+    keys.has(key) && !DEDICATED_FIELDS.has(key) && !fieldDefinitions.value[key]?.deprecated
+  )
+})
+
+// 步骤一按用户掌握项目事实的自然路径组织，而不是沿用后端字段的历史定义顺序。
+// 项目类型先决定适用范围，随后从前向商机一路走到交付、采购和资金事实。
+const FORM_FIELD_GROUPS = [
+  {
+    id: 'identity', step: '1.1', title: '项目标识', description: '先确定项目类型与商机主体',
+    fields: ['project_type', 'bpm_id', 'customer_type'],
+  },
+  {
+    id: 'forward', step: '1.2', title: '前向商机与合同', description: '客户采购、合同与收入事实',
+    fields: ['forward_bidding_type', 'contract_matches_bpm', 'revenue_recognition', 'is_end_user'],
+  },
+  {
+    id: 'delivery', step: '1.3', title: '项目内容与交付', description: '项目范围、能力与交付方式',
+    fields: [
+      'hardware_construction', 'service_period', 'project_location',
+      'has_telecom_capability', 'capability_ratio', 'service_delivery_mode',
+    ],
+  },
+  {
+    id: 'control', step: '1.4', title: '方案、实施与验收控制', description: '确认电信实际主导的交付环节',
+    fields: ['scheme_reviewed', 'contract_content_same', 'acceptance_content_same', 'logistics_control'],
+  },
+  {
+    id: 'procurement', step: '1.5', title: '后向采购与关联关系', description: '供应商、采购方式与关联事实',
+    fields: ['supplier_confirmed', 'procurement_method', 'related_party', 'related_party_checked'],
+  },
+  {
+    id: 'finance', step: '1.6', title: '财务与资金', description: '最后填写利润、预付与垫资',
+    fields: ['gross_margin', 'has_prepayment', 'has_advance_funding'],
+  },
+]
+
+const generalFieldGroups = computed(() => {
+  const visible = new Set(generalFormFields.value)
+  const groups = FORM_FIELD_GROUPS
+    .map((group) => ({ ...group, fields: group.fields.filter((key) => visible.has(key)) }))
+    .filter((group) => group.fields.length)
+  const grouped = new Set(FORM_FIELD_GROUPS.flatMap((group) => group.fields))
+  const remaining = generalFormFields.value.filter((key) => !grouped.has(key))
+  if (remaining.length) {
+    groups.push({
+      id: 'additional', step: '1.7', title: '其他适用信息',
+      description: '当前项目类型新增的补充字段', fields: remaining,
+    })
+  }
+  return groups
+})
+
+function fieldReviewEntry(key) {
+  return fieldReview.value?.fields?.[key] || null
+}
+
+function isFieldAiPending(key) {
+  const entry = fieldReviewEntry(key)
+  return ['ai_bulk', 'ai_field_help'].includes(entry?.source) && entry?.status === 'pending'
+}
+
+function isFieldAiAssisted(key) {
+  const entry = fieldReviewEntry(key)
+  return ['ai_bulk', 'ai_field_help'].includes(entry?.source) && entry?.status === 'confirmed'
+}
+
+function stepPendingFields(step) {
+  if (step === 1) return generalFormFields.value.filter(isFieldAiPending)
+  if (step === 3) return LISTING_FIELDS.filter(isFieldAiPending)
+  return []
+}
+
+async function confirmStepAiFields(step) {
+  const keys = stepPendingFields(step)
+  if (!keys.length) return
+  await commitFieldPatch({}, { confirmFields: keys })
+}
+
 const structurePendingMessage = computed(() => {
   if (!accountingUnits.value.length) return '请先建立至少一个原始业务单元。'
+  if (sourceUnitsNeedReview.value) return '请核对并确认 AI 切分的原始业务单元。'
   if (accountingUnits.value.some((source) => source.declared_type === '其他')) return '正式诊断不能保留“其他”，请按业务实质归入明确类别。'
   for (const group of accountingGroups.value) {
     if ((group.source_unit_ids || []).length < 2) return '候选组合至少应包含两个原始单元。'
@@ -847,7 +1011,29 @@ const structurePendingMessage = computed(() => {
   }
   return ''
 })
-const pendingTotal = computed(() => generalMissingFields.value.length + (structureReady.value ? 0 : 1))
+const pendingTotal = computed(() =>
+  generalMissingFields.value.length + pendingAiFields.value.length + (structureReady.value ? 0 : 1)
+)
+
+function stepStatus(step) {
+  if (step === 1) {
+    if (stepPendingFields(1).length) return `待核对 ${stepPendingFields(1).length} 项`
+    return generalMissingFields.value.length ? `待补充 ${generalMissingFields.value.length} 项` : '已完成'
+  }
+  if (step === 2) return structureReady.value ? '已完成' : (structurePendingMessage.value || '待完成')
+  if (step === 3) {
+    if (stepPendingFields(3).length) return `待核对 ${stepPendingFields(3).length} 项`
+    return fullIntentUnits.value.length ? '按拟全额单元填写' : '无需填写'
+  }
+  return isComplete.value ? '可提交诊断' : '待完成'
+}
+
+const completionBlocker = computed(() => {
+  if (generalMissingFields.value.length) return `基础与商务信息还缺 ${generalMissingFields.value.length} 项。`
+  if (pendingAiFields.value.length) return `还有 ${pendingAiFields.value.length} 项 AI 预填内容未核对。`
+  if (!structureReady.value) return structurePendingMessage.value || '请完成核算结构与列收意图。'
+  return '请检查各步骤的事实是否准确。'
+})
 
 const parsedFieldKeys = computed(() => {
   const missing = new Set(missingFields.value)
@@ -932,6 +1118,19 @@ function normalizeFieldsFromServer(f) {
   return out
 }
 
+function normalizeFieldReview(review) {
+  const fields = review?.fields && typeof review.fields === 'object' ? review.fields : {}
+  return { schema_version: 1, fields }
+}
+
+function applyServerState(data) {
+  if (data.session_id) sessionId.value = data.session_id
+  currentFields.value = normalizeFieldsFromServer(data.extracted_fields || {})
+  missingFields.value = data.missing_fields || []
+  if (data.field_review) fieldReview.value = normalizeFieldReview(data.field_review)
+  if (data.accounting_structure) accountingStructure.value = normalizeStructure(data.accounting_structure)
+}
+
 const getFieldLabel = (key) => fieldDefinitions.value[key]?.label || FIELD_LABELS[key] || key
 
 function formatApiError(e) {
@@ -950,30 +1149,16 @@ function formatApiError(e) {
   return typeof d === 'object' ? JSON.stringify(d) : String(d)
 }
 
-async function commitFieldPatch(partial) {
+async function commitFieldPatch(partial, { sources, confirmFields } = {}) {
   Object.assign(currentFields.value, partial)
   if (!sessionId.value) return
   try {
-    const res = await patchSessionFields(sessionId.value, partial)
-    currentFields.value = normalizeFieldsFromServer(res.data.extracted_fields)
-    missingFields.value = res.data.missing_fields || []
-    if (res.data.accounting_structure) accountingStructure.value = normalizeStructure(res.data.accounting_structure)
-    // 实时预警：手动修改字段时更新
-    if (res.data.realtime_warnings?.length) {
-      const newWarnings = res.data.realtime_warnings
-      // 合并（同字段去重，保留最新）
-      const map = new Map(realtimeWarnings.value.map(w => [w.field, w]))
-      for (const w of newWarnings) map.set(w.field, w)
-      realtimeWarnings.value = Array.from(map.values())
-    }
-    // 手动修改的字段不标 AI 来源，从集合中移除
-    for (const k of Object.keys(partial)) {
-      const newSet = new Set(aiExtractedKeys.value)
-      newSet.delete(k)
-      aiExtractedKeys.value = newSet
-    }
+    const res = await patchSessionFields(sessionId.value, partial, { sources, confirmFields })
+    applyServerState(res.data)
+    return true
   } catch (e) {
     alert(`保存失败：${formatApiError(e)}`)
+    return false
   }
 }
 
@@ -993,6 +1178,15 @@ function adjustTextareaHeight() {
 
 watch(inputText, () => adjustTextareaHeight())
 
+async function startNewSession() {
+  try {
+    const res = await createSession()
+    applyServerState(res.data)
+  } catch (e) {
+    alert(`无法创建填写草稿：${formatApiError(e)}`)
+  }
+}
+
 onMounted(async () => {
   adjustTextareaHeight()
   try {
@@ -1001,6 +1195,7 @@ onMounted(async () => {
   } catch {
     fieldDefinitions.value = {}
   }
+  await startNewSession()
 })
 
 function formatAiMsg(text) {
@@ -1035,31 +1230,15 @@ async function sendMessage() {
   await scrollToBottom()
 
   try {
-    const res = await sendChat(sessionId.value, text, currentFields.value)
+    const res = await sendChat(sessionId.value, text)
     const data = res.data
 
-    sessionId.value = data.session_id
-    currentFields.value = normalizeFieldsFromServer(data.extracted_fields || {})
-    missingFields.value = data.missing_fields || []
-    if (data.accounting_structure) accountingStructure.value = normalizeStructure(data.accounting_structure)
-
-    // 实时预警：合并本轮新预警
-    if (data.realtime_warnings?.length) {
-      const map = new Map(realtimeWarnings.value.map(w => [w.field, w]))
-      for (const w of data.realtime_warnings) map.set(w.field, w)
-      realtimeWarnings.value = Array.from(map.values())
-    }
-    // 累计 AI 提取键
-    if (data.ai_extracted_keys?.length) {
-      const newSet = new Set(aiExtractedKeys.value)
-      for (const k of data.ai_extracted_keys) newSet.add(k)
-      aiExtractedKeys.value = newSet
-    }
+    applyServerState(data)
 
     let replyText = data.reply != null ? String(data.reply).trim() : ''
     if (!replyText) {
       replyText =
-        '已收到你的描述。若此处无文字，请查看右侧「已解析并确认的信息」与「待补充信息」。'
+        '未识别到可安全预填的信息；请继续在项目事实表中填写。'
     }
     messages.value.push({ role: 'assistant', content: replyText })
   } catch (e) {
@@ -1073,6 +1252,61 @@ async function sendMessage() {
     await scrollToBottom()
     adjustTextareaHeight()
   }
+}
+
+function openFieldHelp(fieldKey) {
+  fieldHelpTarget.value = fieldKey
+  inputText.value = ''
+  nextTick(() => inputRef.value?.focus())
+}
+
+function clearFieldHelp() {
+  fieldHelpTarget.value = null
+  inputText.value = ''
+}
+
+async function sendAssist() {
+  if (fieldHelpTarget.value) {
+    await requestFieldHelp()
+    return
+  }
+  await sendMessage()
+}
+
+async function requestFieldHelp() {
+  const text = inputText.value.trim()
+  const fieldKey = fieldHelpTarget.value
+  if (!text || !fieldKey || loading.value) return
+  messages.value.push({ role: 'user', content: `关于「${getFieldLabel(fieldKey)}」：${text}` })
+  inputText.value = ''
+  loading.value = true
+  await scrollToBottom()
+  try {
+    const res = await getFieldHelp(sessionId.value, fieldKey, text)
+    const data = res.data
+    const reply = [data.explanation, data.reason, data.follow_up ? `需要确认：${data.follow_up}` : '']
+      .filter(Boolean).join('\n\n')
+    messages.value.push({
+      role: 'assistant',
+      content: reply || '请按该字段的项目实际情况填写。',
+      help: { fieldKey, suggestedValue: data.suggested_value, applied: false },
+    })
+  } catch (e) {
+    messages.value.push({ role: 'assistant', content: `暂时无法提供字段建议：${formatApiError(e)}` })
+  } finally {
+    loading.value = false
+    await scrollToBottom()
+    adjustTextareaHeight()
+  }
+}
+
+async function applyFieldSuggestion(help) {
+  if (!help || help.applied || help.suggestedValue === null || help.suggestedValue === undefined) return
+  const saved = await commitFieldPatch(
+    { [help.fieldKey]: help.suggestedValue },
+    { sources: { [help.fieldKey]: 'ai_field_help' } },
+  )
+  if (saved) help.applied = true
 }
 
 async function submitDiagnosis() {
@@ -1094,7 +1328,7 @@ async function submitDiagnosis() {
     await unitsSaveChain
     const res = await confirmDiagnosis(sessionId.value, currentFields.value)
     diagnosisId.value = res.data.diagnosis_id
-    window.open(`/report/${diagnosisId.value}`, '_blank')
+    window.location.assign(`/report/${diagnosisId.value}`)
   } catch (e) {
     alert(`提交失败：${formatApiError(e)}`)
   } finally {
@@ -1104,7 +1338,7 @@ async function submitDiagnosis() {
   }
 }
 
-function resetChat() {
+async function resetChat() {
   messages.value = []
   inputText.value = ''
   loading.value = false
@@ -1113,10 +1347,12 @@ function resetChat() {
   missingFields.value = []
   diagnosisId.value = null
   currentFields.value = {}
-  realtimeWarnings.value = []
-  aiExtractedKeys.value = new Set()
+  fieldReview.value = { schema_version: 1, fields: {} }
+  fieldHelpTarget.value = null
+  activeStep.value = 1
   accountingStructure.value = emptyStructure()
   drawerOpen.value = false
+  await startNewSession()
 }
 </script>
 
@@ -1128,13 +1364,15 @@ function resetChat() {
   overflow: hidden;
 }
 
-/* ── 左侧对话区 ── */
+/* ── 次级 AI 助填区 ── */
 .chat-panel {
-  flex: 1;
+  order: 2;
+  flex: 0 0 360px;
+  width: 360px;
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-right: 1px solid var(--slate-200);
+  border-left: 1px solid var(--slate-200);
   min-width: 0;
 }
 
@@ -1157,21 +1395,6 @@ function resetChat() {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.lookup-link {
-  padding: 7px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  color: var(--blue-600);
-  text-decoration: none;
-  border: 1px solid var(--blue-100);
-  background: var(--blue-50);
-  transition: all 0.15s;
-}
-.lookup-link:hover {
-  background: var(--blue-100);
-  border-color: var(--blue-300);
 }
 
 .new-chat-btn {
@@ -1333,14 +1556,15 @@ function resetChat() {
 
 .input-hint { font-size: 11px; color: var(--slate-400); margin-top: 6px; text-align: right; }
 
-/* ── 右侧字段面板 ── */
+/* ── 主项目事实表 ── */
 .fields-panel {
-  width: 400px;
-  flex-shrink: 0;
+  order: 1;
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--slate-50);
-  border-left: 1px solid var(--slate-200);
+  border-right: 1px solid var(--slate-200);
 }
 
 .fields-header {
@@ -1370,6 +1594,13 @@ function resetChat() {
   color: var(--slate-500);
   line-height: 1.35;
 }
+.fields-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 .fields-count {
   font-size: 12px;
@@ -1396,6 +1627,103 @@ function resetChat() {
 }
 .empty-icon { font-size: 36px; margin-bottom: 12px; }
 .fields-empty p { font-size: 13px; }
+
+.diagnosis-stages {
+  display: flex;
+  gap: 20px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  font-size: 12px;
+  color: var(--slate-400);
+  flex-shrink: 0;
+}
+.diagnosis-stages .stage-active { color: var(--blue-700); font-weight: 600; }
+.form-step-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.form-step-nav button {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--slate-600);
+  text-align: left;
+  cursor: pointer;
+}
+.form-step-nav button.active { border-color: var(--blue-500); background: var(--blue-50); color: var(--blue-700); }
+.form-step-nav strong, .form-step-nav span { display: block; }
+.form-step-nav strong { font-size: 12px; }
+.form-step-nav span { margin-top: 3px; font-size: 11px; color: var(--slate-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-step-nav button.active span { color: var(--blue-600); }
+.form-subgroups { display: flex; flex-direction: column; gap: 12px; }
+.form-subgroup {
+  padding: 11px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+}
+.form-subgroup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+.form-subgroup-head > div { display: flex; align-items: center; gap: 7px; }
+.form-subgroup-head strong { font-size: 12px; color: var(--slate-800); }
+.form-subgroup-head > span { font-size: 11px; color: var(--slate-400); text-align: right; }
+.form-subgroup-index {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--blue-50);
+  color: var(--blue-700);
+  font-size: 10px;
+  font-weight: 700;
+}
+.form-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.primary-form-section .field-item { margin-bottom: 0; }
+.field-help-btn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--blue-600);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ai-confirmed-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--green-50);
+  color: var(--green-700);
+  white-space: nowrap;
+}
+.step-review-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--blue-200);
+  border-radius: var(--radius-sm);
+  background: var(--blue-50);
+  color: var(--blue-700);
+  font-size: 12px;
+}
+.review-status-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--slate-100); font-size: 13px; color: var(--slate-700); }
+.review-status-row strong { color: var(--slate-600); font-weight: 600; }
+.final-review-note { margin: 14px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--blue-50); color: var(--blue-700); font-size: 12px; line-height: 1.6; }
+.field-help-context { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--blue-50); color: var(--blue-700); font-size: 12px; }
+.field-help-context button, .assistant-close { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.assistant-close { display: none; }
+.apply-ai-suggestion { margin: 6px 0 0 44px; padding: 5px 9px; border: 1px solid var(--blue-300); border-radius: 12px; background: var(--blue-50); color: var(--blue-700); font-size: 11px; cursor: pointer; }
+.apply-ai-suggestion:disabled { opacity: .65; cursor: default; }
 
 .fields-section {
   background: #fff;
@@ -1877,64 +2205,13 @@ function resetChat() {
 
 @media (max-width: 768px) {
   .layout {
-    flex-direction: column;
-  }
-
-  .chat-panel {
-    width: 100%;
-    flex: 1;
-    min-height: 0;
-    border-right: none;
+    display: block;
+    overflow: visible;
   }
 
   .fields-panel {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100% !important;
-    height: 75vh;
-    border-radius: 16px 16px 0 0;
-    transform: translateY(100%);
-    transition: transform 0.3s ease;
-    z-index: 200;
-    background: #fff;
-    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
-    display: flex;
-    flex-direction: column;
-  }
-
-  .fields-panel.drawer-open {
-    transform: translateY(0);
-  }
-
-  .drawer-handle-bar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 10px 16px 4px;
-    flex-shrink: 0;
-    position: relative;
-  }
-
-  .drawer-handle {
-    width: 40px;
-    height: 4px;
-    background: #cbd5e1;
-    border-radius: 2px;
-  }
-
-  .drawer-close {
-    position: absolute;
-    right: 16px;
-    top: 8px;
-    background: none;
+    min-height: 100vh;
     border: none;
-    font-size: 18px;
-    color: #94a3b8;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 6px;
   }
 
   .drawer-mask {
@@ -1960,17 +2237,36 @@ function resetChat() {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
-  .drawer-trigger--incomplete {
-    background: #fffbeb;
-    border-color: #fcd34d;
-    color: #92400e;
+  .drawer-trigger {
+    background: var(--blue-600);
+    border-color: var(--blue-600);
+    color: #fff;
   }
 
-  .drawer-trigger--complete {
-    background: #f0fdf4;
-    border-color: #86efac;
-    color: #166534;
+  .chat-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 200;
+    width: 100%;
+    height: 75vh;
+    min-height: 0;
+    transform: translateY(100%);
+    transition: transform .3s ease;
+    border: none;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, .15);
   }
+  .chat-panel.drawer-open { transform: translateY(0); }
+  .chat-header { padding: 12px 14px; }
+  .assistant-close { display: inline-block; }
+  .form-step-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-field-grid { grid-template-columns: 1fr; }
+  .form-subgroup-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .form-subgroup-head > span { text-align: left; }
+  .diagnosis-stages { gap: 10px; overflow-x: auto; white-space: nowrap; }
+  .step-review-band { align-items: flex-start; flex-direction: column; }
 
   .group-members { grid-template-columns: 1fr; }
   .po-row, .daowei-dimension-row.compact { grid-template-columns: 1fr; }

@@ -118,6 +118,8 @@ def structure_from_units(units: list | None) -> dict:
     structure = {
         "schema_version": SCHEMA_VERSION,
         "source_units": sources,
+        # 旧会话及手工新增单元默认已由用户确认；AI 切分入口会显式置为 pending。
+        "source_units_review_status": "confirmed",
         "groups": groups,
         "decisions": {},
         "archived_decisions": [],
@@ -166,6 +168,9 @@ def normalize_structure(value) -> dict:
     normalized = {
         "schema_version": SCHEMA_VERSION,
         "source_units": sources,
+        "source_units_review_status": (
+            "pending" if raw.get("source_units_review_status") == "pending" else "confirmed"
+        ),
         "groups": groups,
         "decisions": copy.deepcopy(decisions),
         "archived_decisions": copy.deepcopy(raw.get("archived_decisions") or []),
@@ -336,6 +341,8 @@ def validate_structure(structure, for_submit: bool = False) -> list[str]:
                 errors.append(f"请确认组合“{group.get('name') or group['id']}”最终是组合还是分别核算")
 
     if for_submit:
+        if normalized.get("source_units_review_status") != "confirmed":
+            errors.append("请核对并确认 AI 切分的原始业务单元")
         for final in derive_final_units(normalized):
             if final.get("declared_type") == STANDARD_PRODUCT_TYPE:
                 continue

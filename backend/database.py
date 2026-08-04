@@ -30,6 +30,7 @@ def _migrate_sqlite():
     with engine.begin() as conn:
         # 既有列补齐
         _add_column_if_missing(conn, "diagnosis_records", "chat_snapshot_json", "chat_snapshot_json TEXT")
+        _add_column_if_missing(conn, "diagnosis_records", "field_review_json", "field_review_json TEXT")
 
         # 账号 & 权限模块新增列
         _add_column_if_missing(conn, "diagnosis_records", "created_by", "created_by INTEGER")
@@ -41,6 +42,7 @@ def _migrate_sqlite():
 
         # 核算单元模块（#7）
         _add_column_if_missing(conn, "chat_sessions", "accounting_units_json", "accounting_units_json TEXT DEFAULT '[]'")
+        _add_column_if_missing(conn, "chat_sessions", "field_review_json", "field_review_json TEXT DEFAULT '{}'")
         _add_column_if_missing(conn, "diagnosis_records", "accounting_units_json", "accounting_units_json TEXT")
 
         # 一次性清理：created_by 列刚加上时，把所有 status='collecting' 的存量会话删掉

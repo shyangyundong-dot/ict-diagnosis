@@ -25,11 +25,20 @@ api.interceptors.response.use(
   },
 )
 
-export const sendChat = (sessionId, message, fields) =>
+export const createSession = () => api.post('/session')
+
+export const sendChat = (sessionId, message, fields = undefined) =>
   api.post('/chat', { session_id: sessionId, message, fields })
 
-export const patchSessionFields = (sessionId, fields) =>
-  api.patch(`/session/${sessionId}/fields`, { fields })
+export const patchSessionFields = (sessionId, fields = {}, { sources, confirmFields } = {}) =>
+  api.patch(`/session/${sessionId}/fields`, {
+    fields,
+    ...(sources ? { sources } : {}),
+    ...(confirmFields?.length ? { confirm_fields: confirmFields } : {}),
+  })
+
+export const getFieldHelp = (sessionId, fieldKey, question) =>
+  api.post(`/session/${sessionId}/field-help`, { field_key: fieldKey, question })
 
 export const fetchFieldDefinitions = () => api.get('/field-definitions')
 

@@ -28,6 +28,7 @@ from accounting_structure import (
 )
 from ai_chat import (
     chat_with_ai,
+    help_with_field,
     segment_accounting_units,
     get_missing_fields,
     FIELD_DEFINITIONS,
@@ -48,6 +49,72 @@ _SHARED_CHECK_FIELDS = {
     "project_location", "has_telecom_capability", "capability_ratio", "logistics_control",
     "payment_terms", "ownership_transfer", "collective_procurement_ratio",
 }
+
+_FIELD_REVIEW_SOURCES = {"manual", "ai_bulk", "ai_field_help"}
+
+
+def _empty_field_review() -> dict:
+    return {"schema_version": 1, "fields": {}}
+
+
+def _load_field_review(session: ChatSession) -> dict:
+    try:
+        raw = json.loads(session.field_review_json or "{}")
+    except (TypeError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    fields = raw.get("fields") if isinstance(raw.get("fields"), dict) else {}
+    normalized = _empty_field_review()
+    for key, entry in fields.items():
+        if not isinstance(entry, dict) or key not in FIELD_DEFINITIONS:
+            continue
+        source = entry.get("source")
+        status = entry.get("status")
+        if source in _FIELD_REVIEW_SOURCES and status in {"pending", "confirmed"}:
+            normalized["fields"][key] = {"source": source, "status": status}
+    return normalized
+
+
+def _save_field_review(session: ChatSession, review: dict) -> None:
+    session.field_review_json = json.dumps(review, ensure_ascii=False)
+
+
+def _set_field_review(review: dict, key: str, source: str, status: str) -> None:
+    if key not in FIELD_DEFINITIONS or source not in _FIELD_REVIEW_SOURCES:
+        return
+    review.setdefault("fields", {})[key] = {"source": source, "status": status}
+
+
+def _pending_ai_fields(review: dict) -> list[str]:
+    return [
+        key for key, entry in (review.get("fields") or {}).items()
+        if entry.get("source") in {"ai_bulk", "ai_field_help"} and entry.get("status") == "pending"
+    ]
+
+
+def _is_blank_field_value(value) -> bool:
+    return value is None or value == "" or value == []
+
+
+def _field_review_payload(review: dict) -> dict:
+    return {
+        "field_review": review,
+        "pending_ai_fields": _pending_ai_fields(review),
+    }
+
+
+def _assistant_summary(applied: list[str], conflicts: list[str], missing: list[str]) -> str:
+    labels = [FIELD_DEFINITIONS[key]["label"] for key in applied if key in FIELD_DEFINITIONS]
+    conflict_labels = [FIELD_DEFINITIONS[key]["label"] for key in conflicts if key in FIELD_DEFINITIONS]
+    chunks = []
+    if labels:
+        chunks.append(f"已预填 {len(labels)} 项：{'、'.join(labels)}，请在表单中核对确认")
+    if conflict_labels:
+        chunks.append(f"{len(conflict_labels)} 项与已确认值不一致，未自动覆盖：{'、'.join(conflict_labels)}")
+    if missing:
+        chunks.append(f"仍缺 {len(missing)} 项必填信息")
+    return "；".join(chunks) + "。以上仅为 AI 助填，不是规则诊断结论。" if chunks else "未识别到可安全预填的信息；请按表单中的项目事实填写。"
 
 
 # ── 权限辅助 ──────────────────────────────────────────────────
@@ -148,7 +215,14 @@ class ChatMessage(BaseModel):
     fields: dict | None = None
 
 class SessionFieldsBody(BaseModel):
-    fields: dict
+    fields: dict = {}
+    sources: dict[str, str] | None = None
+    confirm_fields: list[str] | None = None
+
+
+class FieldHelpBody(BaseModel):
+    field_key: str
+    question: str
 
 class ConfirmSubmit(BaseModel):
     session_id: str
@@ -164,6 +238,37 @@ class ReviewSubmit(BaseModel):
 
 
 # ── 对话接口 ───────────────────────────────────────────────────
+
+@router.post("/session")
+async def create_session(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """创建空白填报会话，使用户可以先填写表单而不是先发起对话。"""
+    session = ChatSession(
+        session_id=str(uuid.uuid4()),
+        messages_json="[]",
+        extracted_fields_json="{}",
+        field_review_json=json.dumps(_empty_field_review(), ensure_ascii=False),
+        status="collecting",
+        created_by=user.id,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    fields: dict = {}
+    review = _load_field_review(session)
+    return {
+        "session_id": session.session_id,
+        "extracted_fields": fields,
+        "fields_display": [],
+        "missing_fields": get_missing_fields(fields),
+        "is_complete": False,
+        "status": session.status,
+        "realtime_warnings": [],
+        "accounting_structure": None,
+        **_field_review_payload(review),
+    }
 
 @router.post("/chat")
 async def chat(
@@ -184,6 +289,7 @@ async def chat(
             session_id=session_id,
             messages_json="[]",
             extracted_fields_json="{}",
+            field_review_json=json.dumps(_empty_field_review(), ensure_ascii=False),
             status="collecting",
             created_by=user.id,
         )
@@ -193,10 +299,13 @@ async def chat(
 
     messages: list = json.loads(session.messages_json)
     current_fields: dict = json.loads(session.extracted_fields_json)
+    review = _load_field_review(session)
     fields_before = dict(current_fields)
 
     if body.fields is not None:
         current_fields.update(body.fields)
+        for key in body.fields:
+            _set_field_review(review, key, "manual", "confirmed")
 
     messages.append({"role": "user", "content": body.message})
 
@@ -209,45 +318,73 @@ async def chat(
     ai_result = await chat_with_ai(messages, current_fields, project_type_for_ai)
 
     new_fields = ai_result.get("extracted", {})
-    current_fields.update({k: v for k, v in new_fields.items() if v is not None})
+    applied_fields: list[str] = []
+    conflicting_fields: list[str] = []
+    for key, value in new_fields.items():
+        definition = FIELD_DEFINITIONS.get(key)
+        # 这些字段要么属于人工判断，要么是旧结构兼容字段；即使模型意外返回，
+        # 也不能留下前端无法核对的 AI 待确认项。
+        if (
+            not definition
+            or key in {"control_roles", "major_integration", "service_capability_level"}
+            or definition.get("manual_confirmation")
+            or definition.get("deprecated")
+            or value is None
+        ):
+            continue
+        if key == "project_type" and isinstance(value, str):
+            value = [value]
+        existing = current_fields.get(key)
+        existing_review = (review.get("fields") or {}).get(key, {})
+        is_pending_ai = (
+            existing_review.get("source") in {"ai_bulk", "ai_field_help"}
+            and existing_review.get("status") == "pending"
+        )
+        if _is_blank_field_value(existing) or is_pending_ai:
+            current_fields[key] = value
+            _set_field_review(review, key, "ai_bulk", "pending")
+            applied_fields.append(key)
+        elif existing != value:
+            # 已人工确认（或历史会话既有）的事实绝不由 AI 覆盖。
+            conflicting_fields.append(key)
     normalize_project_type_field(current_fields)
     _invalidate_structure_if_shared_facts_changed(session, fields_before, current_fields)
 
     missing = get_missing_fields(current_fields)
-    is_complete = len(missing) == 0
+    pending_ai_fields = _pending_ai_fields(review)
+    is_complete = len(missing) == 0 and not pending_ai_fields
 
-    messages.append({"role": "assistant", "content": ai_result["reply"]})
+    reply = ai_result.get("reply") or ""
+    if applied_fields or conflicting_fields:
+        reply = _assistant_summary(applied_fields, conflicting_fields, missing)
+
+    messages.append({"role": "assistant", "content": reply})
 
     session.messages_json = json.dumps(messages, ensure_ascii=False)
     session.extracted_fields_json = json.dumps(current_fields, ensure_ascii=False)
+    _save_field_review(session, review)
     session.status = "confirmed" if is_complete else "collecting"
     db.commit()
 
     fields_display = build_fields_display(current_fields)
 
-    # 对新提取的字段做即时预警
-    realtime_warnings = []
-    for k, v in new_fields.items():
-        if v is not None:
-            w = get_realtime_warnings(k, v)
-            if w:
-                realtime_warnings.append(w)
-
     return {
         "session_id": session_id,
-        "reply": ai_result["reply"],
+        "reply": reply,
         "extracted_fields": current_fields,
         "fields_display": fields_display,
         "missing_fields": missing,
         "is_complete": is_complete,
         "status": session.status,
-        "realtime_warnings": realtime_warnings,
+        # 填表阶段只做事实完整性校验；风险结论留给 /api/confirm 的规则引擎。
+        "realtime_warnings": [],
         "six_daowei_check": _six_daowei_for_session(session, current_fields),
         "accounting_structure": (
             _load_accounting_payload(session) if is_v2_structure(_load_accounting_payload(session)) else None
         ),
-        # AI 来源标注：本轮新提取的字段键列表，前端用于标黄
-        "ai_extracted_keys": list(new_fields.keys()),
+        "ai_extracted_keys": applied_fields,
+        "ai_conflicts": conflicting_fields,
+        **_field_review_payload(review),
     }
 
 
@@ -264,24 +401,33 @@ async def patch_session_fields(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     current_fields: dict = json.loads(session.extracted_fields_json)
+    review = _load_field_review(session)
     fields_before = dict(current_fields)
     current_fields.update(body.fields)
+    for key in body.fields:
+        source = ((body.sources or {}).get(key) or "manual").strip()
+        if source not in _FIELD_REVIEW_SOURCES:
+            raise HTTPException(status_code=400, detail="字段来源无效")
+        _set_field_review(
+            review,
+            key,
+            source,
+            "pending" if source in {"ai_bulk", "ai_field_help"} else "confirmed",
+        )
+    for key in body.confirm_fields or []:
+        entry = (review.get("fields") or {}).get(key)
+        if entry and entry.get("source") in {"ai_bulk", "ai_field_help"}:
+            entry["status"] = "confirmed"
     normalize_project_type_field(current_fields)
     _invalidate_structure_if_shared_facts_changed(session, fields_before, current_fields)
 
     missing = get_missing_fields(current_fields)
-    is_complete = len(missing) == 0
+    is_complete = len(missing) == 0 and not _pending_ai_fields(review)
 
     session.extracted_fields_json = json.dumps(current_fields, ensure_ascii=False)
+    _save_field_review(session, review)
     session.status = "confirmed" if is_complete else "collecting"
     db.commit()
-
-    # 对手动修改的字段做即时预警
-    realtime_warnings = []
-    for k, v in body.fields.items():
-        w = get_realtime_warnings(k, v)
-        if w:
-            realtime_warnings.append(w)
 
     return {
         "session_id": session_id,
@@ -290,12 +436,31 @@ async def patch_session_fields(
         "missing_fields": missing,
         "is_complete": is_complete,
         "status": session.status,
-        "realtime_warnings": realtime_warnings,
+        "realtime_warnings": [],
         "six_daowei_check": _six_daowei_for_session(session, current_fields),
         "accounting_structure": (
             _load_accounting_payload(session) if is_v2_structure(_load_accounting_payload(session)) else None
         ),
+        **_field_review_payload(review),
     }
+
+
+@router.post("/session/{session_id}/field-help")
+async def get_field_help(
+    session_id: str,
+    body: FieldHelpBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """针对单个字段提供 AI 填写说明和建议；不运行规则、不直接改值。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session or not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if body.field_key not in FIELD_DEFINITIONS:
+        raise HTTPException(status_code=400, detail="字段不存在")
+    fields = json.loads(session.extracted_fields_json or "{}")
+    answer = await help_with_field(body.field_key, body.question, fields)
+    return {"field_key": body.field_key, **answer}
 
 
 @router.post("/session/{session_id}/units")
@@ -312,9 +477,10 @@ async def segment_session_units(
     messages: list = json.loads(session.messages_json)
     units = await segment_accounting_units(messages)
     structure = structure_from_units(units)
+    if structure["source_units"]:
+        structure["source_units_review_status"] = "pending"
     session.accounting_units_json = json.dumps(structure, ensure_ascii=False)
     db.commit()
-    fields = json.loads(session.extracted_fields_json or "{}")
     return {
         "session_id": session_id,
         "accounting_structure": structure,
@@ -351,7 +517,6 @@ async def save_session_units(
         raise HTTPException(status_code=400, detail="；".join(errors))
     session.accounting_units_json = json.dumps(structure, ensure_ascii=False)
     db.commit()
-    fields = json.loads(session.extracted_fields_json or "{}")
     return {
         "session_id": session_id,
         "accounting_structure": structure,
@@ -379,11 +544,23 @@ async def confirm_and_diagnose(
     if not session or not can_resume_session(user, session):
         raise HTTPException(status_code=404, detail="会话不存在")
 
+    stored_fields = json.loads(session.extracted_fields_json or "{}")
+    review = _load_field_review(session)
     fields = dict(body.fields)
+    # 与会话中已保存值不同的字段视为本次由用户手工修订；相同的 AI 待核对值不能借由重发
+    # 整个 fields payload 绕过确认门禁。
+    for key, value in fields.items():
+        if stored_fields.get(key) != value:
+            _set_field_review(review, key, "manual", "confirmed")
     normalize_project_type_field(fields)
     migrate_legacy_service_fields(fields)
     strip_deprecated_input_fields(fields)
+    pending_ai_fields = _pending_ai_fields(review)
+    if pending_ai_fields:
+        labels = [FIELD_DEFINITIONS[key]["label"] for key in pending_ai_fields if key in FIELD_DEFINITIONS]
+        raise HTTPException(status_code=400, detail=f"请先核对 AI 预填字段：{'、'.join(labels)}")
     session.extracted_fields_json = json.dumps(fields, ensure_ascii=False)
+    _save_field_review(session, review)
 
     fields_for_diagnosis = dict(fields)
     apply_derived_fields_for_diagnosis(fields_for_diagnosis)
@@ -430,6 +607,7 @@ async def confirm_and_diagnose(
         project_type=project_type_db,
         input_json=json.dumps(fields_for_diagnosis, ensure_ascii=False),
         chat_snapshot_json=session.messages_json,
+        field_review_json=session.field_review_json,
         accounting_units_json=session.accounting_units_json,
         overall_risk=result["overall_risk"],
         result_json=json.dumps(result, ensure_ascii=False),
@@ -653,6 +831,10 @@ async def get_diagnosis_traceability(
 
     fields_display = build_fields_display(confirmed_fields) if confirmed_fields else []
     try:
+        field_review = json.loads(record.field_review_json or "{}")
+    except Exception:
+        field_review = {}
+    try:
         accounting_snapshot = json.loads(record.accounting_units_json or "[]")
     except Exception:
         accounting_snapshot = []
@@ -664,6 +846,7 @@ async def get_diagnosis_traceability(
         "rule_version": record.rule_version,
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
         "confirmed_fields": confirmed_fields,
+        "field_review": field_review,
         "fields_display": fields_display,
         "chat_messages": chat_messages,
         "has_chat_snapshot": bool(chat_messages),

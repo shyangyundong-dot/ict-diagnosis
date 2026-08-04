@@ -626,50 +626,62 @@ SYSTEM_PROMPT = """你是广州电信云中台的ICT项目合规诊断助手。�
 - is_capital_investment: 是否电信自投资设备打包（资本投资模式）。true | false。明确说"电信自投资/资本投资"才抽 true。
 
 ## 重要规则
+- 你只做事实提取，**绝不输出风险等级、列收结论、合规结论或任何规则命中判断**；正式诊断只会在用户确认表单后由规则引擎执行。
 - is_complete只有在所有必填字段（根据project_type**数组**所覆盖类型的并集）都已收集完毕时才设为true
 - 追问要有温度，要体现你理解业务，不是机械地问清单
 - 如果用户表达的信息和某个选项不完全匹配，选最接近的，但在next_question里请用户确认
 - bpm_id如果用户没提，要问；如果用户说"还没有"，可记为"待录入"等占位
-- **每次回复在 JSON 代码块之外，必须写至少 1～2 句自然语言**（小结或追问），不要只输出 JSON，否则用户界面会显示空白。
+- **只输出 JSON 对象，不要输出 JSON 外的自然语言、Markdown 或代码块。**
 """
 
 
-async def chat_with_ai(messages: list[dict], current_fields: dict, project_type: str = None) -> dict:
-    """
-    与DeepSeek进行一轮对话，返回AI回复和提取的字段
-    """
+FIELD_HELP_SYSTEM_PROMPT = """你是 ICT 项目事实填报助手。用户正在填写一个明确字段；你只能解释该字段的含义、根据用户明确说出的事实给出合法选项建议，或提出一个澄清问题。
+
+严格边界：不要判断项目合规性、风险等级、能否全额列收、是否触发规则，也不要说“通过/不通过”。这些结论只能由用户提交后运行规则库得出。
+
+只输出以下 JSON 对象，不要输出 Markdown 或额外文字：
+{
+  "explanation": "简短字段解释",
+  "suggested_value": "合法选项值或 null",
+  "reason": "建议依据；不确定时说明缺少什么事实",
+  "follow_up": "必要时的一个澄清问题，否则为空字符串"
+}
+"""
+
+
+def _parse_any_json_object(content: str) -> dict:
+    """从模型内容中尽力提取第一个 JSON 对象。"""
+    for m in re.finditer(r"```(?:json)?\s*([\s\S]*?)\s*```", content or "", re.IGNORECASE):
+        try:
+            value = json.loads(m.group(1).strip())
+            if isinstance(value, dict):
+                return value
+        except json.JSONDecodeError:
+            continue
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(content or ""):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(content, index)
+            if isinstance(value, dict):
+                return value
+        except ValueError:
+            continue
+    return {}
+
+
+async def _call_deepseek_messages(api_messages: list[dict], max_tokens: int = 4096) -> tuple[str, str, str | None]:
+    """统一处理 DeepSeek 请求、重试和可展示错误。"""
     if not (DEEPSEEK_API_KEY or "").strip():
-        return {
-            "reply": "（系统未配置 DEEPSEEK_API_KEY，无法调用大模型。请在 backend 目录的 .env 中设置 DEEPSEEK_API_KEY 后重启后端。）",
-            "extracted": {},
-            "missing_required": [],
-            "next_question": "",
-            "is_complete": False,
-        }
-
-    # 构建系统上下文
-    context_msg = f"""
-当前已收集到的字段：
-{json.dumps(current_fields, ensure_ascii=False, indent=2)}
-
-项目类型：{project_type or "未确定"}
-
-请根据对话历史，提取新信息并判断下一步要问什么。
-"""
-
-    # 构建消息列表（截断过长单条，避免第二轮超长输入导致超时或空输出）
-    clipped = clip_messages_for_api(messages)
-    api_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "system", "content": context_msg},
-    ] + clipped
+        return "", "", "系统未配置 DEEPSEEK_API_KEY，暂时无法使用 AI 助填。"
 
     timeout = httpx.Timeout(connect=30.0, read=120.0, write=120.0, pool=30.0)
     payload = {
         "model": DEEPSEEK_MODEL,
         "messages": api_messages,
         "temperature": 0.3,
-        "max_tokens": 4096,
+        "max_tokens": max_tokens,
     }
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -694,53 +706,46 @@ async def chat_with_ai(messages: list[dict], current_fields: dict, project_type:
                 if retriable and attempt < DEEPSEEK_MAX_RETRIES - 1:
                     await asyncio.sleep(1.5 * (2**attempt))
                     continue
-                return {
-                    "reply": f"（调用 DeepSeek 失败：HTTP {code}，请检查 DEEPSEEK_API_KEY 是否有效、网络是否正常。）",
-                    "extracted": {},
-                    "missing_required": [],
-                    "next_question": "",
-                    "is_complete": False,
-                }
+                return "", "", f"调用 DeepSeek 失败：HTTP {code}。"
             except httpx.RequestError as e:
                 last_error = e
                 if attempt < DEEPSEEK_MAX_RETRIES - 1:
                     await asyncio.sleep(1.5 * (2**attempt))
                     continue
-                return {
-                    "reply": f"（调用 AI 网络异常（已重试 {DEEPSEEK_MAX_RETRIES} 次）：{e!s}）",
-                    "extracted": {},
-                    "missing_required": [],
-                    "next_question": "",
-                    "is_complete": False,
-                }
+                return "", "", f"调用 AI 网络异常（已重试 {DEEPSEEK_MAX_RETRIES} 次）。"
             except Exception as e:
-                return {
-                    "reply": f"（调用 AI 时出错：{e!s}）",
-                    "extracted": {},
-                    "missing_required": [],
-                    "next_question": "",
-                    "is_complete": False,
-                }
+                return "", "", f"调用 AI 时出错：{e!s}"
 
     if data is None:
         msg = f"{last_error!s}" if last_error else "未知错误"
-        return {
-            "reply": f"（调用 AI 失败：{msg}）",
-            "extracted": {},
-            "missing_required": [],
-            "next_question": "",
-            "is_complete": False,
-        }
+        return "", "", f"调用 AI 失败：{msg}"
 
     choice = data["choices"][0]
     content = (choice.get("message") or {}).get("content") or ""
     finish_reason = choice.get("finish_reason") or ""
+    return content, finish_reason, None
+
+
+async def chat_with_ai(messages: list[dict], current_fields: dict, project_type: str = None) -> dict:
+    """从整段项目描述提取可预填字段；不产生诊断结论。"""
+    context_msg = f"""
+当前已收集到的字段：
+{json.dumps(current_fields, ensure_ascii=False, indent=2)}
+
+项目类型：{project_type or "未确定"}
+
+请根据对话历史，提取新信息并判断下一步要问什么。
+"""
+    api_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": context_msg},
+    ] + clip_messages_for_api(messages)
+    content, finish_reason, error = await _call_deepseek_messages(api_messages)
+    if error:
+        return {"reply": error, "extracted": {}, "missing_required": [], "next_question": "", "is_complete": False}
 
     extracted_data = parse_json_payload_from_ai(content)
-
-    # 清理回复文本（去掉 JSON 代码块，只保留自然语言部分）
-    clean_content = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", content, flags=re.IGNORECASE).strip()
-    reply_text = build_reply_text(clean_content, extracted_data)
+    reply_text = build_reply_text("", extracted_data)
     if finish_reason == "length":
         reply_text += "（模型输出已达长度上限，若 JSON 不完整请缩短描述后重试。）"
 
@@ -750,6 +755,57 @@ async def chat_with_ai(messages: list[dict], current_fields: dict, project_type:
         "missing_required": extracted_data.get("missing_required", []),
         "next_question": extracted_data.get("next_question", ""),
         "is_complete": extracted_data.get("is_complete", False),
+    }
+
+
+def _legal_field_suggestion(field_key: str, value):
+    definition = FIELD_DEFINITIONS.get(field_key) or {}
+    options = definition.get("options") or []
+    if value is None or not options:
+        return None
+    if field_key == "project_type":
+        values = value if isinstance(value, list) else [value]
+        if values and all(item in options for item in values):
+            return values
+        return None
+    return value if value in options else None
+
+
+async def help_with_field(field_key: str, question: str, current_fields: dict) -> dict:
+    """返回单字段解释与可选建议，不写入会话字段。"""
+    definition = FIELD_DEFINITIONS.get(field_key)
+    if not definition:
+        return {"explanation": "未找到该字段定义。", "suggested_value": None, "reason": "", "follow_up": ""}
+
+    context = {
+        "field_key": field_key,
+        "label": definition.get("label"),
+        "hint": definition.get("hint", ""),
+        "options": definition.get("options", []),
+        "options_label": definition.get("options_label", []),
+        "current_value": current_fields.get(field_key),
+        "known_fields": current_fields,
+        "user_question": question,
+    }
+    api_messages = [
+        {"role": "system", "content": FIELD_HELP_SYSTEM_PROMPT},
+        {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+    ]
+    content, _finish_reason, error = await _call_deepseek_messages(api_messages, max_tokens=900)
+    if error:
+        return {
+            "explanation": definition.get("hint") or "请按项目实际事实选择。",
+            "suggested_value": None,
+            "reason": error,
+            "follow_up": "",
+        }
+
+    data = _parse_any_json_object(content)
+    return {
+        "explanation": str(data.get("explanation") or definition.get("hint") or "请按项目实际事实选择。"),
+        "suggested_value": _legal_field_suggestion(field_key, data.get("suggested_value")),
+        "reason": str(data.get("reason") or ""),
+        "follow_up": str(data.get("follow_up") or ""),
     }
 
 

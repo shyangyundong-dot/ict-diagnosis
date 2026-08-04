@@ -43,19 +43,21 @@
 
         <section class="section">
           <h2 class="section-title">确认的结构化字段</h2>
-          <p class="section-hint">与提交诊断时右侧「信息解析」中确认的值一致（input_json）。</p>
+          <p class="section-hint">与提交诊断时右侧「项目事实表」中确认的值一致；同时保留填写来源，便于复核。</p>
           <div v-if="!data.fields_display?.length" class="empty-block">无结构化字段记录</div>
           <table v-else class="fields-table">
             <thead>
               <tr>
                 <th>字段</th>
                 <th>值</th>
+                <th>来源</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in data.fields_display" :key="row.key">
                 <td class="field-label">{{ row.label }}</td>
                 <td class="field-val">{{ row.value }}</td>
+                <td><span class="source-tag" :class="fieldSource(row.key).tone">{{ fieldSource(row.key).label }}</span></td>
               </tr>
             </tbody>
           </table>
@@ -120,6 +122,14 @@ const idInput = ref('')
 const loading = ref(false)
 const error = ref('')
 const data = ref(null)
+
+function fieldSource(key) {
+  const entry = data.value?.field_review?.fields?.[key]
+  if (entry?.source === 'ai_bulk') return { label: 'AI 整段预填 · 已核对', tone: 'ai' }
+  if (entry?.source === 'ai_field_help') return { label: 'AI 字段助填 · 已核对', tone: 'ai' }
+  if (entry?.source === 'manual') return { label: '人工填写', tone: 'manual' }
+  return { label: '历史记录', tone: 'legacy' }
+}
 
 function formatAiMsg(text) {
   // 先转义 HTML 特殊字符再叠加安全格式，避免 v-html 渲染注入（与 ChatView 一致）
@@ -327,6 +337,18 @@ watch(
   font-weight: 600;
   font-size: 0.82rem;
 }
+
+.source-tag {
+  display: inline-block;
+  white-space: nowrap;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+.source-tag.manual { background: var(--slate-100); color: var(--slate-600); }
+.source-tag.ai { background: var(--blue-50); color: var(--blue-700); }
+.source-tag.legacy { background: #f7f2e7; color: #816b35; }
 
 .field-label {
   color: var(--slate-700);
