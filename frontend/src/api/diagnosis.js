@@ -27,6 +27,15 @@ api.interceptors.response.use(
 
 export const createSession = () => api.post('/session')
 
+export const submitGuidedIntake = (sessionId, sections) =>
+  api.post(`/session/${sessionId}/guided-intake`, { sections }, { timeout: 180000 })
+
+export const replyGuidedIntake = (sessionId, message) =>
+  api.post(`/session/${sessionId}/guided-reply`, { message }, { timeout: 180000 })
+
+export const supplementGuidedIntake = (sessionId, message) =>
+  api.post(`/session/${sessionId}/guided-supplement`, { message }, { timeout: 180000 })
+
 export const sendChat = (sessionId, message, fields = undefined) =>
   api.post('/chat', { session_id: sessionId, message, fields })
 

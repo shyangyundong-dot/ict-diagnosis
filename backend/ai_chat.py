@@ -5,6 +5,8 @@ import re
 import httpx
 from dotenv import load_dotenv
 
+from guided_intake import SECTION_DEFINITIONS, SECTION_KEYS
+
 load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -671,18 +673,47 @@ def _parse_any_json_object(content: str) -> dict:
     return {}
 
 
-async def _call_deepseek_messages(api_messages: list[dict], max_tokens: int = 4096) -> tuple[str, str, str | None]:
+def _build_deepseek_payload(
+    api_messages: list[dict],
+    max_tokens: int,
+    *,
+    model: str | None = None,
+    json_output: bool = False,
+    disable_thinking: bool = True,
+) -> dict:
+    """构造结构化调用载荷；V4 默认关闭思考，避免推理耗尽输出预算。"""
+    selected_model = model or DEEPSEEK_MODEL
+    payload = {
+        "model": selected_model,
+        "messages": api_messages,
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    }
+    if disable_thinking and str(selected_model).startswith("deepseek-v4"):
+        payload["thinking"] = {"type": "disabled"}
+    if json_output:
+        payload["response_format"] = {"type": "json_object"}
+    return payload
+
+
+async def _call_deepseek_messages(
+    api_messages: list[dict],
+    max_tokens: int = 4096,
+    *,
+    json_output: bool = False,
+    disable_thinking: bool = True,
+) -> tuple[str, str, str | None]:
     """统一处理 DeepSeek 请求、重试和可展示错误。"""
     if not (DEEPSEEK_API_KEY or "").strip():
         return "", "", "系统未配置 DEEPSEEK_API_KEY，暂时无法使用 AI 助填。"
 
     timeout = httpx.Timeout(connect=30.0, read=120.0, write=120.0, pool=30.0)
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "messages": api_messages,
-        "temperature": 0.3,
-        "max_tokens": max_tokens,
-    }
+    payload = _build_deepseek_payload(
+        api_messages,
+        max_tokens,
+        json_output=json_output,
+        disable_thinking=disable_thinking,
+    )
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json",
@@ -723,6 +754,10 @@ async def _call_deepseek_messages(api_messages: list[dict], max_tokens: int = 40
     choice = data["choices"][0]
     content = (choice.get("message") or {}).get("content") or ""
     finish_reason = choice.get("finish_reason") or ""
+    if not content.strip():
+        if finish_reason == "length":
+            return "", finish_reason, "AI 输出预算已用尽，未返回可解析内容。"
+        return "", finish_reason, "AI 未返回可解析内容，请稍后重试。"
     return content, finish_reason, None
 
 
@@ -740,7 +775,7 @@ async def chat_with_ai(messages: list[dict], current_fields: dict, project_type:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": context_msg},
     ] + clip_messages_for_api(messages)
-    content, finish_reason, error = await _call_deepseek_messages(api_messages)
+    content, finish_reason, error = await _call_deepseek_messages(api_messages, json_output=True)
     if error:
         return {"reply": error, "extracted": {}, "missing_required": [], "next_question": "", "is_complete": False}
 
@@ -791,7 +826,9 @@ async def help_with_field(field_key: str, question: str, current_fields: dict) -
         {"role": "system", "content": FIELD_HELP_SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
     ]
-    content, _finish_reason, error = await _call_deepseek_messages(api_messages, max_tokens=900)
+    content, _finish_reason, error = await _call_deepseek_messages(
+        api_messages, max_tokens=900, json_output=True,
+    )
     if error:
         return {
             "explanation": definition.get("hint") or "请按项目实际事实选择。",
@@ -807,6 +844,545 @@ async def help_with_field(field_key: str, question: str, current_fields: dict) -
         "reason": str(data.get("reason") or ""),
         "follow_up": str(data.get("follow_up") or ""),
     }
+
+
+# ── 六块引导式项目说明 ──────────────────────────────────────
+
+GUIDED_INTAKE_SYSTEM_PROMPT = """你是广州电信云中台的 ICT 项目事实整理助手。用户会按六块模板描述项目，你负责整理事实、判断信息覆盖、规划集中追问，并形成原始核算单元草稿。
+
+严格边界：
+1. 只做事实提取和缺口识别，绝不输出风险等级、规则命中、列收结果、合规结论或整改建议。
+2. 不要把“电信参与/协调”臆测成“电信主导/决策/承担责任”。
+3. 不确定的字段不要猜；用户明确说不知道时记录为 unknown_confirmed。
+4. 每轮最多给 5 个追问，按同一主题集中组织；已回答或明确不知道的内容不要重复问。
+5. 只输出 JSON 对象，不要输出 Markdown、代码块或 JSON 外文字。
+
+六块键固定为：basic、delivery、responsibilities、acceptance、commercial、financial。
+每块必须返回：
+- status: covered | partial | missing | not_applicable | unknown_confirmed
+- summary: 2-5 句事实摘要，不得含风险或列收结论
+- missing_topics: 尚缺主题数组
+- contradictions: 前后冲突数组
+- evidence: 支撑摘要的用户原文逐字短句数组
+
+原始核算单元 source_units 的每项字段：
+- name
+- declared_type: 设备 | 成品软件 | 施工 | 服务 | 标品 | 其他
+- amount: 元，不确定为 null
+- tax_rate: 如 13%，不确定为 null
+- gross: 毛利额或毛利率原文，不确定为 null
+- logistics: self | supplier_direct | unknown
+- has_self_capability: true | false | unknown
+- whitelisted: 仅设备/成品软件使用 true | false | unknown，其他类型为 null
+- suggested_group: 可能构成同一组合产出时使用相同组名，否则 null
+- reason: 业务实质分类依据
+- evidence: 对象，至少包含 type；可包含 amount、tax_rate、gross、logistics、capability、whitelist。
+  每项必须逐字摘自用户原文；没有直接证据时对应值必须填 null/unknown。
+
+最小拆分要求：同一报价项或描述同时包含可独立识别的设备和施工（如设备供货 + 安装/布放/调试）时，必须拆成设备、施工两个原始单元；总金额不能可靠拆分时，两项 amount 均填 null，并用相同 suggested_group 关联。
+每个有独立名称或金额的标段/报价块都必须保留一个原始单元；即使其内部设备、施工、服务金额尚未拆清，也先用“其他”占位并保留该标段总额，不得因资料不完整而漏掉整块业务。
+
+特别注意：gross_margin 只表示应列收/服务侧毛利；overall_margin 才表示包含硬件的项目整体利润率，二者严禁互串。
+
+返回结构：
+{
+  "sections": {
+    "basic": {"status":"...","summary":"...","missing_topics":[],"contradictions":[],"evidence":[]},
+    "delivery": {}, "responsibilities": {}, "acceptance": {}, "commercial": {}, "financial": {}
+  },
+  "extracted": {"合法字段键": {"value": "合法字段值", "evidence": "用户原文逐字短句"}},
+  "source_units": [],
+  "blocking_topics": [],
+  "simple_fact_gaps": [],
+  "contradictions": [],
+  "follow_up_questions": []
+}
+"""
+
+
+def _guided_field_contract() -> dict:
+    contract = {}
+    for key, definition in FIELD_DEFINITIONS.items():
+        if definition.get("deprecated") or definition.get("manual_confirmation"):
+            continue
+        if key in {"control_roles", "major_integration", "service_capability_level"}:
+            continue
+        contract[key] = {
+            "label": definition.get("label"),
+            "options": definition.get("options"),
+            "multi": definition.get("multi", False),
+        }
+    return contract
+
+
+_UNCERTAIN_EVIDENCE = re.compile(r"暂不清楚|尚不清楚|不清楚|未说明|未明确|未知|待确认|材料未提供|无法确认|不确定")
+
+
+def _normalized_evidence_text(value) -> str:
+    return re.sub(r"\s+", "", str(value or "")).lower()
+
+
+def _evidence_is_grounded(evidence, source_text: str) -> bool:
+    needle = _normalized_evidence_text(evidence)
+    haystack = _normalized_evidence_text(source_text)
+    return len(needle) >= 2 and needle in haystack
+
+
+def _field_evidence_is_semantically_sufficient(key: str, field_value, evidence: str) -> bool:
+    """给容易把前后向、未知和业务动作混淆的字段加最小语义闸门。"""
+    if key == "payment_terms" and field_value == "standard":
+        return bool(
+            re.search(r"首付|预付款", evidence)
+            and "到货" in evidence
+            and "验收" in evidence
+            and "尾款" in evidence
+        )
+    if key == "has_prepayment":
+        return bool(
+            "预付" in evidence
+            and re.search(r"我方|电信", evidence)
+            and re.search(r"采购|后向|供应商", evidence)
+        )
+    if key == "has_advance_funding":
+        return "垫资" in evidence
+    if key == "is_capital_investment":
+        return bool(re.search(r"自投|自投资|资本投资", evidence))
+    return True
+
+
+def sanitize_guided_extracted_fields(value, *, source_text: str | None = None) -> dict:
+    """只保留字段契约允许、且能回指用户原文的 AI 提取结果。"""
+    raw = value if isinstance(value, dict) else {}
+    sanitized = {}
+    for key, raw_entry in raw.items():
+        definition = FIELD_DEFINITIONS.get(key)
+        if (
+            not definition
+            or definition.get("deprecated")
+            or definition.get("manual_confirmation")
+            or key in {"control_roles", "major_integration", "service_capability_level"}
+        ):
+            continue
+        if source_text is not None:
+            if not isinstance(raw_entry, dict) or "value" not in raw_entry:
+                continue
+            field_value = raw_entry.get("value")
+            evidence = str(raw_entry.get("evidence") or "").strip()
+            if field_value is None or not _evidence_is_grounded(evidence, source_text):
+                continue
+            is_unknown_value = isinstance(field_value, str) and field_value in {"uncertain", "unknown"}
+            if _UNCERTAIN_EVIDENCE.search(evidence) and not is_unknown_value:
+                continue
+            if not _field_evidence_is_semantically_sufficient(key, field_value, evidence):
+                continue
+        else:
+            field_value = raw_entry
+            if field_value is None:
+                continue
+        options = definition.get("options") or []
+        if options:
+            if key == "project_type":
+                values = field_value if isinstance(field_value, list) else [field_value]
+                if values and all(item in options for item in values):
+                    sanitized[key] = values
+            elif field_value in options:
+                sanitized[key] = field_value
+            continue
+        if isinstance(field_value, (str, int, float, bool, list)):
+            sanitized[key] = field_value
+    return sanitized
+
+
+_UNIT_TYPES = {"设备", "成品软件", "施工", "服务", "标品", "其他"}
+_DEVICE_TERMS = re.compile(r"设备|硬件|天线|馈线|功分器|耦合器|poi|机柜|服务器|存储|交换机", re.IGNORECASE)
+_CONSTRUCTION_TERMS = re.compile(r"施工|安装|布放|布线|工程|调试|装修")
+
+
+def _unit_evidence_value(evidence: dict, key: str, source_text: str) -> str:
+    value = str(evidence.get(key) or "").strip() if isinstance(evidence, dict) else ""
+    return value if _evidence_is_grounded(value, source_text) else ""
+
+
+def _normalized_unit_amount(value, evidence: str):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not evidence:
+        return None
+    amount = float(value)
+    if "亿元" in evidence and abs(amount) < 10_000_000:
+        amount *= 100_000_000
+    elif "万元" in evidence and abs(amount) < 100_000:
+        amount *= 10_000
+    return round(amount, 2)
+
+
+def sanitize_guided_source_units(value, *, source_text: str) -> list[dict]:
+    """把核算单元草稿压回可举证事实，并对设备+施工混合描述做最小拆分。"""
+    raw_units = value if isinstance(value, list) else []
+    sanitized: list[dict] = []
+    for index, raw in enumerate(raw_units, 1):
+        if not isinstance(raw, dict):
+            continue
+        declared_type = raw.get("declared_type")
+        evidence = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
+        type_evidence = _unit_evidence_value(evidence, "type", source_text)
+        if declared_type not in _UNIT_TYPES or not type_evidence or _UNCERTAIN_EVIDENCE.search(type_evidence):
+            continue
+
+        name = str(raw.get("name") or f"{declared_type}单元{index}").strip()[:120]
+        amount_evidence = _unit_evidence_value(evidence, "amount", source_text)
+        amount = _normalized_unit_amount(raw.get("amount"), amount_evidence)
+        tax_evidence = _unit_evidence_value(evidence, "tax_rate", source_text)
+        tax_rate = str(raw.get("tax_rate"))[:30] if tax_evidence and raw.get("tax_rate") is not None else None
+        gross_evidence = _unit_evidence_value(evidence, "gross", source_text)
+        gross = str(raw.get("gross"))[:120] if gross_evidence and raw.get("gross") is not None else None
+
+        logistics_evidence = _unit_evidence_value(evidence, "logistics", source_text)
+        logistics = raw.get("logistics")
+        if logistics not in {"self", "supplier_direct"} or not logistics_evidence or _UNCERTAIN_EVIDENCE.search(logistics_evidence):
+            logistics = "unknown"
+
+        capability_evidence = _unit_evidence_value(evidence, "capability", source_text)
+        if re.search(r"无法.*(?:电信)?自维|不可自维|全部外包|供应商负责.*(?:实施|运维)", capability_evidence):
+            has_self_capability = False
+        elif re.search(r"可自维|电信直接运维|自有团队.*(?:执行|实施|运维)", capability_evidence):
+            has_self_capability = True
+        else:
+            has_self_capability = "unknown"
+
+        whitelist_evidence = _unit_evidence_value(evidence, "whitelist", source_text)
+        whitelisted = raw.get("whitelisted")
+        if declared_type not in {"设备", "成品软件"}:
+            whitelisted = None
+        elif (
+            whitelisted not in {True, False}
+            or not whitelist_evidence
+            or "白名单" not in whitelist_evidence
+            or _UNCERTAIN_EVIDENCE.search(whitelist_evidence)
+        ):
+            whitelisted = "unknown"
+
+        reason = f"用户原文提到“{type_evidence[:120]}”，暂按{declared_type}拆分；业务类型和金额需人工确认。"
+        unit = {
+            "name": name,
+            "declared_type": declared_type,
+            "amount": amount,
+            "tax_rate": tax_rate,
+            "gross": gross,
+            "logistics": logistics,
+            "has_self_capability": has_self_capability,
+            "whitelisted": whitelisted,
+            "suggested_group": str(raw.get("suggested_group") or "").strip()[:80] or None,
+            "reason": reason,
+        }
+        fact_blob = f"{name} {type_evidence}"
+        already_split = bool(re.search(
+            r"(?:^|[-_（(])(?:设备|施工)部分(?:[）)]|$)", name,
+        ))
+        if (
+            declared_type in {"设备", "施工", "其他"}
+            and not already_split
+            and _DEVICE_TERMS.search(fact_blob)
+            and _CONSTRUCTION_TERMS.search(fact_blob)
+        ):
+            group = unit["suggested_group"] or f"设备施工拆分组{index}"
+            for split_type in ("设备", "施工"):
+                split_unit = dict(unit)
+                split_unit.update({
+                    "name": f"{name}（{split_type}部分）",
+                    "declared_type": split_type,
+                    "amount": None,
+                    "tax_rate": None,
+                    "gross": None,
+                    "whitelisted": "unknown" if split_type == "设备" else None,
+                    "suggested_group": group,
+                    "reason": (
+                        f"用户原文同时提到设备与施工内容，先拆为{split_type}原始单元；"
+                        "分项业务类型和金额需人工确认。"
+                    ),
+                })
+                sanitized.append(split_unit)
+        else:
+            sanitized.append(unit)
+
+    existing_types = {unit.get("declared_type") for unit in sanitized}
+    source_sentences = [
+        sentence.strip() for sentence in re.split(r"[。！？\n]+", source_text or "") if sentence.strip()
+    ]
+    mixed_evidence = next((
+        sentence for sentence in source_sentences
+        if _DEVICE_TERMS.search(sentence) and _CONSTRUCTION_TERMS.search(sentence)
+    ), "")
+    if mixed_evidence:
+        group = "设备施工待拆组"
+        for split_type in ("设备", "施工"):
+            if split_type in existing_types:
+                continue
+            sanitized.append({
+                "name": f"{split_type}部分（待确认）",
+                "declared_type": split_type,
+                "amount": None,
+                "tax_rate": None,
+                "gross": None,
+                "logistics": "unknown",
+                "has_self_capability": "unknown",
+                "whitelisted": "unknown" if split_type == "设备" else None,
+                "suggested_group": group,
+                "reason": (
+                    f"用户原文同时提到设备与施工：“{mixed_evidence[:100]}”；"
+                    f"先补充{split_type}占位单元，分项类型和金额需人工确认。"
+                ),
+            })
+            existing_types.add(split_type)
+
+    lot_pattern = re.compile(
+        r"([\u4e00-\u9fa5A-Za-z0-9_-]{2,12}标段)\s*(?:约|为|：|:)?\s*(\d+(?:\.\d+)?)\s*万"
+    )
+    existing_names = [str(unit.get("name") or "") for unit in sanitized]
+    for lot_name, amount_text in lot_pattern.findall(source_text or ""):
+        if lot_name in {"每个标段", "两个标段", "各个标段"}:
+            continue
+        if any(lot_name in name for name in existing_names):
+            continue
+        sanitized.append({
+            "name": f"{lot_name}（待拆分）",
+            "declared_type": "其他",
+            "amount": round(float(amount_text) * 10000, 2),
+            "tax_rate": None,
+            "gross": None,
+            "logistics": "unknown",
+            "has_self_capability": "unknown",
+            "whitelisted": None,
+            "suggested_group": None,
+            "reason": f"用户给出{lot_name}总额，但内部构成尚未拆清；先保留整块业务并由用户确认。",
+        })
+        existing_names.append(lot_name)
+    return sanitized
+
+
+def _guided_source_text(guided_input: dict, messages: list[dict]) -> str:
+    chunks = [
+        str(item.get("text") or "")
+        for item in (guided_input.get("sections") or {}).values()
+        if isinstance(item, dict) and item.get("text")
+    ]
+    chunks.extend(
+        str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "user"
+    )
+    return "\n".join(chunks)
+
+
+_UNKNOWN_FIELD_PATTERNS = {
+    "bpm_id": re.compile(r"BPM", re.IGNORECASE),
+    "supplier_confirmed": re.compile(r"后向供应商|供应商是否.*确定"),
+    "procurement_method": re.compile(r"后向采购方式|供应商.*采购方式"),
+    "related_party": re.compile(r"关联关系|三方关联"),
+    "has_prepayment": re.compile(r"我方.*预付|后向.*预付|采购.*预付"),
+    "has_advance_funding": re.compile(r"垫资"),
+    "acceptance_content_same": re.compile(r"验收报告.*编制|供应商材料.*整理|验收材料.*整理"),
+}
+_UNKNOWN_STATEMENT = re.compile(r"暂不清楚|尚不清楚|不清楚|未说明|未明确|未知|待确认|未提供|尚未提供|无法确认|不确定")
+
+
+def infer_acknowledged_unknown_fields(source_text: str) -> list[str]:
+    """识别用户已明确承认未知的简单表单事实，后续不再重复追问。"""
+    found: list[str] = []
+    for sentence in re.split(r"[。！？\n]+", source_text or ""):
+        if not _UNKNOWN_STATEMENT.search(sentence):
+            continue
+        for key, pattern in _UNKNOWN_FIELD_PATTERNS.items():
+            if pattern.search(sentence) and key not in found:
+                found.append(key)
+    return found
+
+
+def _margin_bucket(percent: float) -> str:
+    if percent <= 0:
+        return "lte_0"
+    if percent <= 3:
+        return "lte_3"
+    if percent < 4:
+        return "pct_3_4"
+    if percent < 5:
+        return "pct_4_5"
+    if percent < 6:
+        return "pct_5_6"
+    if percent <= 10:
+        return "pct_6_10"
+    return "gt_10"
+
+
+def derive_safe_guided_fields(source_text: str) -> dict:
+    """对少量高确定性事实做服务端兜底，弥补模型偶发漏提。"""
+    derived: dict = {}
+    sentences = [
+        sentence.strip() for sentence in re.split(r"[。！？\n]+", source_text or "") if sentence.strip()
+    ]
+    for sentence in sentences:
+        if (
+            re.search(r"服务|ICT成本", sentence, re.IGNORECASE)
+            and "利润率" in sentence
+            and not re.search(r"全项目|项目整体|整体利润率", sentence)
+        ):
+            match = re.search(r"利润率(?:约为|约|为)?\s*(\d+(?:\.\d+)?)\s*%", sentence)
+            if match:
+                derived["gross_margin"] = _margin_bucket(float(match.group(1)))
+                break
+
+    payment_sentence = next((
+        sentence for sentence in sentences
+        if re.search(r"前向付款|付款方式", sentence) and re.search(r"进度款|分期|质保金|按年|每月", sentence)
+    ), "")
+    if payment_sentence and not (
+        re.search(r"首付|预付款", payment_sentence)
+        and "到货" in payment_sentence
+        and "验收" in payment_sentence
+        and "尾款" in payment_sentence
+    ):
+        derived["payment_terms"] = "other"
+
+    positive_delivery = any(
+        re.search(r"可自维部分|电信直接运维|电信自维|自有团队.*(?:执行|实施|运维)", sentence)
+        and not re.search(r"无法|不可自维", sentence)
+        for sentence in sentences
+    )
+    external_delivery = bool(re.search(
+        r"无法.*(?:电信)?自维|不可自维部分|合作方代维|采用合作方代维|合作方负责.*(?:运维|实施|施工)|供应商负责.*(?:现场施工|运维|维保)",
+        source_text or "",
+    ))
+    if positive_delivery and external_delivery:
+        derived["service_delivery_mode"] = "mixed"
+    elif external_delivery:
+        derived["service_delivery_mode"] = "all_external"
+    if re.search(r"BPM[^。；\n]{0,20}(?:未提供|暂未提供|不清楚|未知)", source_text or "", re.IGNORECASE):
+        derived["contract_matches_bpm"] = "uncertain"
+    return derived
+
+
+def augment_project_types_from_units(fields: dict, source_units: list[dict]) -> bool:
+    """用已举证的单元组成补足多选项目类型，不覆盖用户已有类型。"""
+    types = fields.get("project_type")
+    types = list(types) if isinstance(types, list) else ([types] if isinstance(types, str) else [])
+    unit_types = {
+        unit.get("declared_type") for unit in source_units if isinstance(unit, dict)
+    }
+    changed = False
+    if "服务" in unit_types and (unit_types & {"设备", "成品软件", "施工"}):
+        for project_type in ("system_integration", "service"):
+            if project_type not in types:
+                types.append(project_type)
+                changed = True
+    elif unit_types == {"设备"} and "equipment_sales" not in types:
+        types.append("equipment_sales")
+        changed = True
+    if changed:
+        fields["project_type"] = types
+    return changed
+
+
+def _guided_unit_identity(unit: dict) -> str:
+    name = str(unit.get("name") or "").strip().lower()
+    name = re.sub(r"(?:[-_（(])(?:设备|施工)部分(?:[）)]|$)", "", name)
+    name = re.sub(r"\s+", "", name)
+    return f"{unit.get('declared_type') or ''}|{name}"
+
+
+def merge_guided_source_units(previous: list[dict], incoming: list[dict]) -> list[dict]:
+    """按业务名+类型合并跨轮草稿，容忍“（设备部分）/-设备部分”等表述变化。"""
+    merged: list[dict] = []
+    index_by_identity: dict[str, int] = {}
+    for unit in previous:
+        if not isinstance(unit, dict):
+            continue
+        identity = _guided_unit_identity(unit)
+        if identity in index_by_identity:
+            continue
+        index_by_identity[identity] = len(merged)
+        merged.append(unit)
+    for unit in incoming:
+        if not isinstance(unit, dict):
+            continue
+        identity = _guided_unit_identity(unit)
+        if identity in index_by_identity:
+            merged[index_by_identity[identity]] = unit
+        else:
+            index_by_identity[identity] = len(merged)
+            merged.append(unit)
+    return merged
+
+
+async def analyze_guided_intake(
+    guided_input: dict,
+    messages: list[dict],
+    current_fields: dict,
+    *,
+    known_coverage: dict | None = None,
+    known_source_units: list[dict] | None = None,
+) -> dict:
+    """分析六块项目说明并规划下一轮追问；不运行任何诊断规则。"""
+    context = {
+        "section_definitions": {
+            key: {"title": value["title"], "prompt": value["prompt"]}
+            for key, value in SECTION_DEFINITIONS.items()
+        },
+        "guided_input": guided_input,
+        "known_fields": current_fields,
+        "known_coverage": known_coverage or {},
+        "known_source_units": known_source_units or [],
+        "field_contract": _guided_field_contract(),
+        "conversation": clip_messages_for_api([
+            message for message in messages
+            if message.get("role") == "user"
+            and not str(message.get("content") or "").startswith("【六块引导式项目说明】")
+        ], max_chars=8000),
+    }
+    api_messages = [
+        {"role": "system", "content": GUIDED_INTAKE_SYSTEM_PROMPT},
+        {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+    ]
+    content, finish_reason, error = await _call_deepseek_messages(
+        api_messages, max_tokens=7000, json_output=True,
+    )
+    if error:
+        return {
+            "sections": {},
+            "extracted": {},
+            "source_units": [],
+            "blocking_topics": ["AI 暂时无法完成覆盖评估"],
+            "simple_fact_gaps": [],
+            "contradictions": [],
+            "follow_up_questions": [],
+            "error": error,
+        }
+
+    data = _parse_any_json_object(content)
+    questions = data.get("follow_up_questions")
+    if not isinstance(questions, list):
+        questions = []
+    source_units = data.get("source_units")
+    if not isinstance(source_units, list):
+        source_units = []
+    source_text = _guided_source_text(guided_input, messages)
+    extracted = sanitize_guided_extracted_fields(data.get("extracted"), source_text=source_text)
+    for key, field_value in derive_safe_guided_fields(source_text).items():
+        extracted.setdefault(key, field_value)
+    result = {
+        "sections": data.get("sections") if isinstance(data.get("sections"), dict) else {},
+        "extracted": extracted,
+        "source_units": sanitize_guided_source_units(source_units, source_text=source_text),
+        "acknowledged_unknown_fields": infer_acknowledged_unknown_fields(source_text),
+        "blocking_topics": data.get("blocking_topics") if isinstance(data.get("blocking_topics"), list) else [],
+        "simple_fact_gaps": data.get("simple_fact_gaps") if isinstance(data.get("simple_fact_gaps"), list) else [],
+        "contradictions": data.get("contradictions") if isinstance(data.get("contradictions"), list) else [],
+        "follow_up_questions": questions[:5],
+        "error": None,
+    }
+    if finish_reason == "length":
+        result["error"] = "AI 输出达到长度上限，请缩短单块描述后重试。"
+        result["extracted"] = {}
+        result["source_units"] = []
+    # 契约完整性由 guided_intake.normalize_coverage / evaluate_readiness 再校验。
+    return result
 
 
 # ── 核算单元切分（#7，见 docs/adr/0002）──

@@ -27,6 +27,8 @@ from accounting_structure import (
     validate_structure,
 )
 from ai_chat import (
+    analyze_guided_intake,
+    augment_project_types_from_units,
     chat_with_ai,
     help_with_field,
     segment_accounting_units,
@@ -34,9 +36,22 @@ from ai_chat import (
     FIELD_DEFINITIONS,
     normalize_project_type_field,
     migrate_legacy_service_fields,
+    merge_guided_source_units,
     strip_deprecated_input_fields,
     apply_derived_fields_for_diagnosis,
     build_fields_display,
+)
+from guided_intake import (
+    MAX_FOLLOW_UP_ROUNDS,
+    SECTION_DEFINITIONS,
+    empty_coverage,
+    empty_guided_input,
+    evaluate_readiness,
+    guided_input_as_message,
+    has_minimum_starting_content,
+    merge_coverage,
+    normalize_coverage,
+    normalize_guided_input,
 )
 from report_generator import generate_report_html, generate_pdf
 from ai_report import enrich_diagnosis_with_ai
@@ -115,6 +130,63 @@ def _assistant_summary(applied: list[str], conflicts: list[str], missing: list[s
     if missing:
         chunks.append(f"仍缺 {len(missing)} 项必填信息")
     return "；".join(chunks) + "。以上仅为 AI 助填，不是规则诊断结论。" if chunks else "未识别到可安全预填的信息；请按表单中的项目事实填写。"
+
+
+def _apply_ai_extracted_fields(current_fields: dict, review: dict, new_fields) -> tuple[list[str], list[str]]:
+    """写入 AI 可安全预填的事实；已确认值永不覆盖。"""
+    applied_fields: list[str] = []
+    conflicting_fields: list[str] = []
+    for key, value in (new_fields if isinstance(new_fields, dict) else {}).items():
+        definition = FIELD_DEFINITIONS.get(key)
+        if (
+            not definition
+            or key in {"control_roles", "major_integration", "service_capability_level"}
+            or definition.get("manual_confirmation")
+            or definition.get("deprecated")
+            or value is None
+        ):
+            continue
+        if key == "project_type" and isinstance(value, str):
+            value = [value]
+        existing = current_fields.get(key)
+        existing_review = (review.get("fields") or {}).get(key, {})
+        is_pending_ai = (
+            existing_review.get("source") in {"ai_bulk", "ai_field_help"}
+            and existing_review.get("status") == "pending"
+        )
+        if _is_blank_field_value(existing) or is_pending_ai:
+            current_fields[key] = value
+            _set_field_review(review, key, "ai_bulk", "pending")
+            applied_fields.append(key)
+        elif existing != value:
+            conflicting_fields.append(key)
+    return applied_fields, conflicting_fields
+
+
+def _load_json_object(raw: str | None, fallback: dict) -> dict:
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        value = {}
+    return value if isinstance(value, dict) else fallback
+
+
+def _load_guided_input(session: ChatSession) -> dict:
+    return normalize_guided_input(_load_json_object(session.guided_input_json, empty_guided_input()))
+
+
+def _load_coverage(session: ChatSession) -> dict:
+    value = _load_json_object(session.coverage_json, empty_coverage())
+    return normalize_coverage(value, round_no=value.get("round", 0))
+
+
+def _guided_payload(session: ChatSession) -> dict:
+    return {
+        "guided_input": _load_guided_input(session),
+        "guided_section_definitions": SECTION_DEFINITIONS,
+        "coverage": _load_coverage(session),
+        "max_follow_up_rounds": MAX_FOLLOW_UP_ROUNDS,
+    }
 
 
 # ── 权限辅助 ──────────────────────────────────────────────────
@@ -224,6 +296,14 @@ class FieldHelpBody(BaseModel):
     field_key: str
     question: str
 
+
+class GuidedIntakeBody(BaseModel):
+    sections: dict
+
+
+class GuidedReplyBody(BaseModel):
+    message: str
+
 class ConfirmSubmit(BaseModel):
     session_id: str
     fields: dict
@@ -250,6 +330,8 @@ async def create_session(
         messages_json="[]",
         extracted_fields_json="{}",
         field_review_json=json.dumps(_empty_field_review(), ensure_ascii=False),
+        guided_input_json=json.dumps(empty_guided_input(), ensure_ascii=False),
+        coverage_json=json.dumps(empty_coverage(), ensure_ascii=False),
         status="collecting",
         created_by=user.id,
     )
@@ -268,6 +350,7 @@ async def create_session(
         "realtime_warnings": [],
         "accounting_structure": None,
         **_field_review_payload(review),
+        **_guided_payload(session),
     }
 
 @router.post("/chat")
@@ -290,6 +373,8 @@ async def chat(
             messages_json="[]",
             extracted_fields_json="{}",
             field_review_json=json.dumps(_empty_field_review(), ensure_ascii=False),
+            guided_input_json=json.dumps(empty_guided_input(), ensure_ascii=False),
+            coverage_json=json.dumps(empty_coverage(), ensure_ascii=False),
             status="collecting",
             created_by=user.id,
         )
@@ -317,36 +402,9 @@ async def chat(
 
     ai_result = await chat_with_ai(messages, current_fields, project_type_for_ai)
 
-    new_fields = ai_result.get("extracted", {})
-    applied_fields: list[str] = []
-    conflicting_fields: list[str] = []
-    for key, value in new_fields.items():
-        definition = FIELD_DEFINITIONS.get(key)
-        # 这些字段要么属于人工判断，要么是旧结构兼容字段；即使模型意外返回，
-        # 也不能留下前端无法核对的 AI 待确认项。
-        if (
-            not definition
-            or key in {"control_roles", "major_integration", "service_capability_level"}
-            or definition.get("manual_confirmation")
-            or definition.get("deprecated")
-            or value is None
-        ):
-            continue
-        if key == "project_type" and isinstance(value, str):
-            value = [value]
-        existing = current_fields.get(key)
-        existing_review = (review.get("fields") or {}).get(key, {})
-        is_pending_ai = (
-            existing_review.get("source") in {"ai_bulk", "ai_field_help"}
-            and existing_review.get("status") == "pending"
-        )
-        if _is_blank_field_value(existing) or is_pending_ai:
-            current_fields[key] = value
-            _set_field_review(review, key, "ai_bulk", "pending")
-            applied_fields.append(key)
-        elif existing != value:
-            # 已人工确认（或历史会话既有）的事实绝不由 AI 覆盖。
-            conflicting_fields.append(key)
+    applied_fields, conflicting_fields = _apply_ai_extracted_fields(
+        current_fields, review, ai_result.get("extracted", {}),
+    )
     normalize_project_type_field(current_fields)
     _invalidate_structure_if_shared_facts_changed(session, fields_before, current_fields)
 
@@ -385,7 +443,207 @@ async def chat(
         "ai_extracted_keys": applied_fields,
         "ai_conflicts": conflicting_fields,
         **_field_review_payload(review),
+        **_guided_payload(session),
     }
+
+
+def _guided_reply_text(coverage: dict, ai_error: str | None = None) -> str:
+    if ai_error:
+        return ai_error
+    readiness = coverage.get("readiness")
+    if readiness == "ready":
+        return "六块项目说明已经形成完整项目骨架，可以进入信息确认。以上仅为事实整理，不是规则诊断结论。"
+    if readiness == "blocked":
+        topics = coverage.get("blocking_topics") or []
+        suffix = f" 当前仍缺：{'；'.join(topics)}。" if topics else ""
+        return f"三轮集中追问已经结束，当前资料仍不足，草稿已保存。{suffix}请取得相关材料后修改六块项目说明并重新评估。"
+    questions = coverage.get("follow_up_questions") or []
+    if questions:
+        listed = "\n".join(f"{index}. {question}" for index, question in enumerate(questions, 1))
+        return f"我已整理现有项目事实。请集中补充以下内容：\n{listed}\n可以一次回答整组问题，不清楚的项目请明确写“暂不清楚”。"
+    topics = coverage.get("blocking_topics") or []
+    if topics:
+        return f"现有说明还不足以形成完整项目骨架，请补充：{'；'.join(topics)}。"
+    return "已整理现有项目事实，请继续补充交付内容、职责边界和最终验收形态。"
+
+
+async def _assess_guided_session(session: ChatSession, round_no: int, db: Session) -> dict:
+    messages = json.loads(session.messages_json or "[]")
+    current_fields = json.loads(session.extracted_fields_json or "{}")
+    review = _load_field_review(session)
+    fields_before = dict(current_fields)
+    guided_input = _load_guided_input(session)
+    previous_coverage = _load_coverage(session)
+    previous_structure = _load_accounting_payload(session)
+    previous_units = (
+        previous_structure.get("source_units", []) if is_v2_structure(previous_structure) else []
+    )
+
+    analysis = await analyze_guided_intake(
+        guided_input,
+        messages,
+        current_fields,
+        known_coverage=previous_coverage,
+        known_source_units=previous_units,
+    )
+    applied_fields, conflicting_fields = _apply_ai_extracted_fields(
+        current_fields, review, analysis.get("extracted", {}),
+    )
+    normalize_project_type_field(current_fields)
+    _invalidate_structure_if_shared_facts_changed(session, fields_before, current_fields)
+
+    units = analysis.get("source_units") if isinstance(analysis.get("source_units"), list) else []
+    if units:
+        # 模型每轮都可能重新生成草稿；少返回的旧单元不能静默丢失。
+        merged_units = merge_guided_source_units(previous_units, units)
+        accounting_structure = structure_from_units(merged_units)
+        if accounting_structure["source_units"]:
+            accounting_structure["source_units_review_status"] = "pending"
+        session.accounting_units_json = json.dumps(accounting_structure, ensure_ascii=False)
+    elif is_v2_structure(previous_structure):
+        accounting_structure = normalize_structure(previous_structure)
+    else:
+        accounting_structure = structure_from_units([])
+
+    if augment_project_types_from_units(
+        current_fields, accounting_structure.get("source_units", []),
+    ):
+        _set_field_review(review, "project_type", "ai_bulk", "pending")
+
+    if analysis.get("error"):
+        coverage = previous_coverage
+        coverage["round"] = round_no
+        for key, item in guided_input.get("sections", {}).items():
+            if key not in coverage.get("sections", {}):
+                continue
+            if item.get("explicit_unknown"):
+                coverage["sections"][key]["status"] = "unknown_confirmed"
+                coverage["sections"][key]["summary"] = "用户已明确说明当前暂不清楚。"
+            elif item.get("text"):
+                coverage["sections"][key]["status"] = "partial"
+                coverage["sections"][key]["summary"] = "原文已保存，待 AI 服务恢复后整理。"
+        coverage["blocking_topics"] = list(dict.fromkeys([
+            *(coverage.get("blocking_topics") or []),
+            "AI 暂时无法完成覆盖评估",
+        ]))
+    else:
+        coverage = merge_coverage(
+            previous_coverage,
+            analysis,
+            round_no=round_no,
+            latest_user_text=str((messages[-1] if messages else {}).get("content") or ""),
+        )
+
+    missing = get_missing_fields(current_fields)
+    coverage = evaluate_readiness(
+        coverage,
+        simple_fact_gaps=missing,
+        has_source_units=bool(accounting_structure.get("source_units")),
+    )
+    reply = _guided_reply_text(coverage, analysis.get("error"))
+    messages.append({"role": "assistant", "content": reply})
+
+    session.messages_json = json.dumps(messages, ensure_ascii=False)
+    session.extracted_fields_json = json.dumps(current_fields, ensure_ascii=False)
+    session.coverage_json = json.dumps(coverage, ensure_ascii=False)
+    _save_field_review(session, review)
+    session.status = "collecting"
+    db.commit()
+
+    return {
+        "session_id": session.session_id,
+        "reply": reply,
+        "extracted_fields": current_fields,
+        "fields_display": build_fields_display(current_fields),
+        "missing_fields": missing,
+        "is_complete": len(missing) == 0 and not _pending_ai_fields(review),
+        "status": session.status,
+        "realtime_warnings": [],
+        "accounting_structure": accounting_structure,
+        "ai_extracted_keys": applied_fields,
+        "ai_conflicts": conflicting_fields,
+        "ai_error": analysis.get("error"),
+        "can_enter_confirmation": coverage.get("readiness") == "ready",
+        "chat_messages": messages,
+        **_field_review_payload(review),
+        **_guided_payload(session),
+    }
+
+
+@router.post("/session/{session_id}/guided-intake")
+async def submit_guided_intake(
+    session_id: str,
+    body: GuidedIntakeBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """保存六块项目说明并从第 0 轮重新评估覆盖度。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session or not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    guided_input = normalize_guided_input({"sections": body.sections})
+    if not has_minimum_starting_content(guided_input):
+        raise HTTPException(status_code=400, detail="请至少填写“项目基本情况”和“项目交付内容”后再提交")
+
+    messages = json.loads(session.messages_json or "[]")
+    messages.append({"role": "user", "content": guided_input_as_message(guided_input)})
+    session.guided_input_json = json.dumps(guided_input, ensure_ascii=False)
+    session.coverage_json = json.dumps(empty_coverage(), ensure_ascii=False)
+    session.messages_json = json.dumps(messages, ensure_ascii=False)
+    db.commit()
+    return await _assess_guided_session(session, 0, db)
+
+
+@router.post("/session/{session_id}/guided-reply")
+async def reply_guided_intake(
+    session_id: str,
+    body: GuidedReplyBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """回答一轮集中追问；最多三轮，之后进入确认或资料不足终态。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session or not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="请填写补充说明")
+
+    coverage = _load_coverage(session)
+    if coverage.get("readiness") == "ready":
+        raise HTTPException(status_code=400, detail="项目说明已经可以进入信息确认")
+    current_round = int(coverage.get("round") or 0)
+    if current_round >= MAX_FOLLOW_UP_ROUNDS:
+        raise HTTPException(status_code=400, detail="集中追问已结束，请修改六块项目说明后重新评估")
+
+    messages = json.loads(session.messages_json or "[]")
+    messages.append({"role": "user", "content": message})
+    session.messages_json = json.dumps(messages, ensure_ascii=False)
+    db.commit()
+    return await _assess_guided_session(session, current_round + 1, db)
+
+
+@router.post("/session/{session_id}/guided-supplement")
+async def supplement_guided_intake(
+    session_id: str,
+    body: GuidedReplyBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """确认阶段主动补充项目事实；重新评估但不占用 AI 集中追问轮次。"""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not session or not can_resume_session(user, session):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="请填写补充说明")
+    coverage = _load_coverage(session)
+    messages = json.loads(session.messages_json or "[]")
+    messages.append({"role": "user", "content": f"【确认阶段主动补充】\n{message}"})
+    session.messages_json = json.dumps(messages, ensure_ascii=False)
+    db.commit()
+    return await _assess_guided_session(session, int(coverage.get("round") or 0), db)
 
 
 @router.patch("/session/{session_id}/fields")
@@ -442,6 +700,7 @@ async def patch_session_fields(
             _load_accounting_payload(session) if is_v2_structure(_load_accounting_payload(session)) else None
         ),
         **_field_review_payload(review),
+        **_guided_payload(session),
     }
 
 
@@ -546,6 +805,11 @@ async def confirm_and_diagnose(
 
     stored_fields = json.loads(session.extracted_fields_json or "{}")
     review = _load_field_review(session)
+    guided_input = _load_guided_input(session)
+    if any(item.get("text") for item in guided_input.get("sections", {}).values()):
+        coverage = _load_coverage(session)
+        if coverage.get("readiness") != "ready":
+            raise HTTPException(status_code=400, detail="六块项目说明尚未达到可确认状态，请先完成引导填报和集中追问")
     fields = dict(body.fields)
     # 与会话中已保存值不同的字段视为本次由用户手工修订；相同的 AI 待核对值不能借由重发
     # 整个 fields payload 绕过确认门禁。
@@ -608,6 +872,8 @@ async def confirm_and_diagnose(
         input_json=json.dumps(fields_for_diagnosis, ensure_ascii=False),
         chat_snapshot_json=session.messages_json,
         field_review_json=session.field_review_json,
+        guided_input_json=session.guided_input_json,
+        coverage_json=session.coverage_json,
         accounting_units_json=session.accounting_units_json,
         overall_risk=result["overall_risk"],
         result_json=json.dumps(result, ensure_ascii=False),
@@ -838,6 +1104,14 @@ async def get_diagnosis_traceability(
         accounting_snapshot = json.loads(record.accounting_units_json or "[]")
     except Exception:
         accounting_snapshot = []
+    try:
+        guided_input = normalize_guided_input(json.loads(record.guided_input_json or "{}"))
+    except Exception:
+        guided_input = empty_guided_input()
+    try:
+        coverage = normalize_coverage(json.loads(record.coverage_json or "{}"))
+    except Exception:
+        coverage = empty_coverage()
 
     return {
         "diagnosis_id": record.id,
@@ -847,6 +1121,9 @@ async def get_diagnosis_traceability(
         "created_at": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "",
         "confirmed_fields": confirmed_fields,
         "field_review": field_review,
+        "guided_input": guided_input,
+        "guided_section_definitions": SECTION_DEFINITIONS,
+        "coverage": coverage,
         "fields_display": fields_display,
         "chat_messages": chat_messages,
         "has_chat_snapshot": bool(chat_messages),

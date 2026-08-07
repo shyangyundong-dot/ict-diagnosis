@@ -14,6 +14,9 @@ class DiagnosisRecord(Base):
     chat_snapshot_json = Column(Text, nullable=True)
     # 提交时的字段来源与人工核对快照；规则引擎不读取，只供溯源审计。
     field_review_json = Column(Text, nullable=True)
+    # 六块引导式项目说明及提交时覆盖评估快照，只供交互溯源。
+    guided_input_json = Column(Text, nullable=True)
+    coverage_json = Column(Text, nullable=True)
     # 核算单元列表快照（#7）；NULL = 该记录创建于核算单元功能之前
     accounting_units_json = Column(Text, nullable=True)
     overall_risk = Column(String(20), nullable=False)
@@ -34,6 +37,9 @@ class ChatSession(Base):
     extracted_fields_json = Column(Text, nullable=False, default="{}")
     # {schema_version, fields:{key:{source,status}}}；AI 预填必须人工确认后才能提交。
     field_review_json = Column(Text, nullable=False, default="{}")
+    # 六块自然语言原文与覆盖/追问状态；规则引擎不直接读取。
+    guided_input_json = Column(Text, nullable=False, default="{}")
+    coverage_json = Column(Text, nullable=False, default="{}")
     # AI 切分草稿 + 用户确认后的核算单元列表（#7）
     accounting_units_json = Column(Text, nullable=False, default="[]")
     status = Column(String(20), nullable=False, default="collecting")

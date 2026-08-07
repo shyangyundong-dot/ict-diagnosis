@@ -20,6 +20,16 @@ cd ict-diagnosis
 
 ---
 
+## 填报流程
+
+新建诊断采用「六块引导说明 → AI 有限追问 → 信息预填确认 → 规则诊断」：用户先按模板用自然语言说明项目基本情况、交付内容、职责分工、验收形态、商务采购和收入成本；AI 判断这些信息能否支撑后续填表，只针对关键缺口追问，最多 3 轮。覆盖达标后，系统展示六块摘要并预填项目事实，用户确认或继续用自然语言补充，最后才进入规则引擎。
+
+放行由服务端确定性规则裁决：形成项目及核算单元骨架、无关键矛盾、确认页简单事实缺口不超过 5 项即可进入确认；AI 额外想追问的细节只作为确认页待核对项。结构化预填必须携带用户原文证据，“暂不清楚”不会被改写成“否”；跨轮会保留既有摘要和核算单元。配置 `deepseek-v4-*` 时，结构化采集会自动关闭 thinking 并请求 JSON 输出，避免推理内容耗尽正式输出预算。
+
+采集阶段的 AI 只做事实提取、缺口识别和摘要整理，不输出风险、列收或合规结论。详细交互和判定契约见 `docs/ai-guided-intake-redesign.md`。
+
+---
+
 ## 首次部署
 
 在 `backend/.env` 中按 `backend/.env.example` 配置：
@@ -70,6 +80,7 @@ ict-diagnosis/
 │   ├── auth.py                       # 密码哈希 / JWT / get_current_user / require_admin
 │   ├── audit.py                      # admin 审计日志辅助
 │   ├── ai_chat.py                    # DeepSeek 对话与字段提取
+│   ├── guided_intake.py              # 六块模板、覆盖状态与有限追问门槛
 │   ├── ai_report.py                  # 报告 AI 个性化分析
 │   ├── report_generator.py           # HTML/PDF 报告生成
 │   ├── session_cleanup.py            # 未完成会话定期清理
@@ -94,6 +105,8 @@ ict-diagnosis/
 │   │   │   └── admin.js              # admin 接口客户端
 │   │   ├── composables/
 │   │   │   └── useAuth.js            # 全局 user 态 + token 管理
+│   │   ├── components/
+│   │   │   └── GuidedIntakePanel.vue  # 六块自然语言填报与追问面板
 │   │   └── views/
 │   │       ├── LoginView.vue              # 登录
 │   │       ├── ChangePasswordView.vue     # 改密（强制 + 自主两用）
@@ -151,7 +164,10 @@ ict-diagnosis/
 ### 诊断核心（除 `/api/health` 外均需登录）
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/chat` | 对话，返回 AI 回复和提取字段 |
+| POST | `/api/chat` | 旧对话入口（保留兼容） |
+| POST | `/api/session/{id}/guided-intake` | 提交六块项目说明并做首次覆盖判断 |
+| POST | `/api/session/{id}/guided-reply` | 回答关键缺口；最多追问 3 轮 |
+| POST | `/api/session/{id}/guided-supplement` | 确认页用自然语言补充事实并重新预填 |
 | POST / PATCH | `/api/session/{id}/units` | 核算单元：POST 让 AI 切分草稿、PATCH 保存用户确认 |
 | POST | `/api/confirm` | 用户确认字段，提交诊断；`project_type` 缺失返回 400 |
 | GET  | `/api/diagnoses` | 合并列表，按角色过滤行 + 分页 |
@@ -261,7 +277,7 @@ pip install weasyprint
 ## 注意事项
 
 - `.env` 含 DeepSeek API Key、JWT_SECRET、初始 admin 密码，不要提交 Git
-- `data/diagnosis.db` 为诊断留痕数据库；每条诊断含提交时的结构化字段（`input_json`）、对话快照（`chat_snapshot_json`）与核算单元快照（`accounting_units_json`），可通过 `GET /api/diagnose/{id}/traceability` 或前端「填报溯源」查询，**不写入合规报告正文**
+- `data/diagnosis.db` 为诊断留痕数据库；每条诊断含提交时的六块原文（`guided_input_json`）、覆盖判断（`coverage_json`）、结构化字段（`input_json`）、对话快照（`chat_snapshot_json`）与核算单元快照（`accounting_units_json`），可通过 `GET /api/diagnose/{id}/traceability` 或前端「填报溯源」查询，**不写入合规报告正文**
 - BPM 商机编号在写入和查询时均统一转为大写
 - 规则库中标注 `"logic": "MANUAL"` 的规则系统无法自动判断，以「人工核查项目」板块单独列出，不计入自动风险等级
 - 规则版本号记录在每条诊断记录中，便于审计追溯

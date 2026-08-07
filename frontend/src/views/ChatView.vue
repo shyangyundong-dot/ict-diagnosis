@@ -1,5 +1,19 @@
 <template>
-  <div class="layout">
+  <GuidedIntakePanel
+    v-if="!confirmationMode"
+    :sections="guidedInput.sections"
+    :definitions="guidedSectionDefinitions"
+    :coverage="coverage"
+    :max-rounds="maxFollowUpRounds"
+    :loading="guidedLoading"
+    :error="guidedError"
+    @submit="submitGuidedSections"
+    @reply="submitGuidedReply"
+    @proceed="enterConfirmation"
+    @reset="resetChat"
+  />
+
+  <div v-else class="layout">
 
     <!-- 次级：AI 助填区。规则诊断只会在表单提交后发生。 -->
     <aside class="chat-panel" :class="{ 'drawer-open': drawerOpen }">
@@ -92,10 +106,11 @@
       </div>
       <div class="fields-header">
         <div class="fields-header-text">
-          <span class="fields-header-title">新建诊断 · 项目事实表</span>
-          <span class="fields-header-desc">先填写并确认项目事实；仅在提交后执行规则库诊断。</span>
+          <span class="fields-header-title">核对 AI 整理的项目事实</span>
+          <span class="fields-header-desc">重点核对缺口、核算结构和专业判断；仅在提交后执行规则库诊断。</span>
         </div>
         <div class="fields-header-actions">
+          <button type="button" class="new-chat-btn" @click="confirmationMode = false">返回项目说明</button>
           <span class="fields-count" :class="isComplete ? 'count-done' : 'count-pending'">
             {{ isComplete ? '✅ 可运行规则诊断' : `待完成 ${pendingTotal} 项` }}
           </span>
@@ -124,10 +139,28 @@
           <!-- 1. 基础与商务信息 -->
           <section v-if="activeStep === 1" class="fields-section primary-form-section">
             <div class="section-head">
-              <span class="section-head-title">1. 基础与商务信息</span>
-              <span class="section-head-meta">先选项目类型，再填写适用字段</span>
+              <span class="section-head-title">1. 六块项目事实摘要</span>
+              <button type="button" class="units-segment-btn" @click="showAllSimpleFacts = !showAllSimpleFacts">
+                {{ showAllSimpleFacts ? '只看待补缺口' : '展开全部结构化事实' }}
+              </button>
             </div>
-            <div class="form-subgroups">
+            <div class="confirmation-summary-grid">
+              <article v-for="item in coverageSectionEntries" :key="item.key" class="confirmation-summary-card">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <span :class="item.status">{{ item.status === 'covered' ? '已覆盖' : (item.status === 'partial' ? '部分覆盖' : (item.status === 'unknown_confirmed' ? '已明确未知' : '需注意')) }}</span>
+                </div>
+                <p>{{ item.summary }}</p>
+              </article>
+            </div>
+            <div class="confirmation-gap-head">
+              <div>
+                <strong>{{ showAllSimpleFacts ? '全部结构化事实' : '仍需补充的普通事实' }}</strong>
+                <span>{{ showAllSimpleFacts ? '可展开复核任何 AI 已整理内容' : `共 ${generalFormFields.length} 项，原则上不超过 5 项` }}</span>
+              </div>
+              <button v-if="generalFormFields.length" type="button" class="field-help-btn" @click="openDrawer">使用自然语言辅助</button>
+            </div>
+            <div v-if="generalFormFields.length" class="form-subgroups">
               <section v-for="group in generalFieldGroups" :key="group.id" class="form-subgroup">
                 <div class="form-subgroup-head">
                   <div>
@@ -155,6 +188,7 @@
                 </div>
               </section>
             </div>
+            <div v-else class="pending-all-clear">普通项目事实已经通过六块摘要完成确认；请继续核对核算结构和专业判断。</div>
             <div v-if="stepPendingFields(1).length" class="step-review-band">
               <span>请核对本步骤的 {{ stepPendingFields(1).length }} 项 AI 预填内容。</span>
               <button type="button" class="units-segment-btn" @click="confirmStepAiFields(1)">确认本步 AI 预填</button>
@@ -503,7 +537,8 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue'
 import FieldControl from '../components/FieldControl.vue'
-import { createSession, sendChat, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, getFieldHelp, downloadReportPdf, segmentUnits, saveUnits } from '../api/diagnosis.js'
+import GuidedIntakePanel from '../components/GuidedIntakePanel.vue'
+import { createSession, submitGuidedIntake, replyGuidedIntake, supplementGuidedIntake, confirmDiagnosis, patchSessionFields, fetchFieldDefinitions, getFieldHelp, downloadReportPdf, segmentUnits, saveUnits } from '../api/diagnosis.js'
 
 const FIELD_LABELS = {
   bpm_id: 'BPM商机编号', project_type: '项目类型', customer_type: '前向客户类型',
@@ -541,13 +576,21 @@ const downloadingPdf = ref(false)
 const fieldReview = ref({ schema_version: 1, fields: {} })
 const activeStep = ref(1)
 const fieldHelpTarget = ref(null)
+const confirmationMode = ref(false)
+const guidedLoading = ref(false)
+const guidedError = ref('')
+const guidedInput = ref({ schema_version: 1, sections: {} })
+const guidedSectionDefinitions = ref({})
+const coverage = ref({ readiness: 'not_started', round: 0, sections: {}, simple_fact_gaps: [] })
+const maxFollowUpRounds = ref(3)
+const showAllSimpleFacts = ref(false)
 
 const pendingAiFields = computed(() => Object.entries(fieldReview.value?.fields || {})
   .filter(([, entry]) => ['ai_bulk', 'ai_field_help'].includes(entry?.source) && entry?.status === 'pending')
   .map(([key]) => key))
 
 const FORM_STEPS = [
-  { id: 1, label: '1 基础信息' },
+  { id: 1, label: '1 摘要与补缺' },
   { id: 2, label: '2 核算结构' },
   { id: 3, label: '3 全额资格自查' },
   { id: 4, label: '4 最终核对' },
@@ -566,7 +609,11 @@ async function onDownloadPdf() {
 }
 const fieldDefinitions = ref({})
 const isComplete = computed(() =>
-  sessionId.value != null && missingFields.value.length === 0 && pendingAiFields.value.length === 0 && structureReady.value
+  sessionId.value != null
+  && coverage.value?.readiness === 'ready'
+  && missingFields.value.length === 0
+  && pendingAiFields.value.length === 0
+  && structureReady.value
 )
 const currentFields = ref({})
 const messagesRef = ref(null)
@@ -916,11 +963,20 @@ const generalMissingFields = computed(() =>
 )
 
 const generalFormFields = computed(() => {
-  const keys = new Set(['project_type', ...Object.keys(currentFields.value), ...generalMissingFields.value])
+  const keys = showAllSimpleFacts.value
+    ? new Set([...Object.keys(currentFields.value), ...generalMissingFields.value])
+    : new Set([...generalMissingFields.value, ...pendingAiFields.value])
   return Object.keys(fieldDefinitions.value).filter((key) =>
     keys.has(key) && !DEDICATED_FIELDS.has(key) && !fieldDefinitions.value[key]?.deprecated
   )
 })
+
+const coverageSectionEntries = computed(() => Object.entries(guidedSectionDefinitions.value || {}).map(([key, definition]) => ({
+  key,
+  title: definition.title,
+  summary: coverage.value?.sections?.[key]?.summary || '暂未形成摘要',
+  status: coverage.value?.sections?.[key]?.status || 'missing',
+})))
 
 // 步骤一按用户掌握项目事实的自然路径组织，而不是沿用后端字段的历史定义顺序。
 // 项目类型先决定适用范围，随后从前向商机一路走到交付、采购和资金事实。
@@ -1129,6 +1185,12 @@ function applyServerState(data) {
   missingFields.value = data.missing_fields || []
   if (data.field_review) fieldReview.value = normalizeFieldReview(data.field_review)
   if (data.accounting_structure) accountingStructure.value = normalizeStructure(data.accounting_structure)
+  if (data.guided_input) guidedInput.value = data.guided_input
+  if (data.guided_section_definitions) guidedSectionDefinitions.value = data.guided_section_definitions
+  if (data.coverage) coverage.value = data.coverage
+  if (data.max_follow_up_rounds) maxFollowUpRounds.value = data.max_follow_up_rounds
+  if (Array.isArray(data.chat_messages)) messages.value = data.chat_messages
+  if (data.ai_error) guidedError.value = String(data.ai_error)
 }
 
 const getFieldLabel = (key) => fieldDefinitions.value[key]?.label || FIELD_LABELS[key] || key
@@ -1187,6 +1249,56 @@ async function startNewSession() {
   }
 }
 
+async function submitGuidedSections(sections) {
+  if (!sessionId.value || guidedLoading.value) return
+  guidedLoading.value = true
+  guidedError.value = ''
+  try {
+    const res = await submitGuidedIntake(sessionId.value, sections)
+    applyServerState(res.data)
+  } catch (e) {
+    guidedError.value = formatApiError(e)
+  } finally {
+    guidedLoading.value = false
+  }
+}
+
+async function submitGuidedReply(message) {
+  if (!sessionId.value || guidedLoading.value) return
+  guidedLoading.value = true
+  guidedError.value = ''
+  try {
+    const res = await replyGuidedIntake(sessionId.value, message)
+    applyServerState(res.data)
+  } catch (e) {
+    guidedError.value = formatApiError(e)
+  } finally {
+    guidedLoading.value = false
+  }
+}
+
+async function enterConfirmation() {
+  if (coverage.value?.readiness !== 'ready' || guidedLoading.value) return
+  guidedLoading.value = true
+  guidedError.value = ''
+  try {
+    // 用户已经在六块摘要页整体确认 AI 整理结果；一次性确认其中的普通预填事实。
+    const keys = [...pendingAiFields.value]
+    if (keys.length) {
+      const res = await patchSessionFields(sessionId.value, {}, { confirmFields: keys })
+      applyServerState(res.data)
+    }
+    confirmationMode.value = true
+    activeStep.value = 1
+    showAllSimpleFacts.value = false
+    drawerOpen.value = false
+  } catch (e) {
+    guidedError.value = formatApiError(e)
+  } finally {
+    guidedLoading.value = false
+  }
+}
+
 onMounted(async () => {
   adjustTextareaHeight()
   try {
@@ -1230,9 +1342,9 @@ async function sendMessage() {
   await scrollToBottom()
 
   try {
-    const res = await sendChat(sessionId.value, text)
+    const res = await supplementGuidedIntake(sessionId.value, text)
     const data = res.data
-
+    const hasServerSnapshot = Array.isArray(data.chat_messages)
     applyServerState(data)
 
     let replyText = data.reply != null ? String(data.reply).trim() : ''
@@ -1240,7 +1352,8 @@ async function sendMessage() {
       replyText =
         '未识别到可安全预填的信息；请继续在项目事实表中填写。'
     }
-    messages.value.push({ role: 'assistant', content: replyText })
+    // 引导式补充接口会返回包含本轮问答的完整快照；只有兼容旧响应时才本地追加。
+    if (!hasServerSnapshot) messages.value.push({ role: 'assistant', content: replyText })
   } catch (e) {
     messages.value.push({
       role: 'assistant',
@@ -1350,6 +1463,14 @@ async function resetChat() {
   fieldReview.value = { schema_version: 1, fields: {} }
   fieldHelpTarget.value = null
   activeStep.value = 1
+  confirmationMode.value = false
+  guidedLoading.value = false
+  guidedError.value = ''
+  guidedInput.value = { schema_version: 1, sections: {} }
+  guidedSectionDefinitions.value = {}
+  coverage.value = { readiness: 'not_started', round: 0, sections: {}, simple_fact_gaps: [] }
+  maxFollowUpRounds.value = 3
+  showAllSimpleFacts.value = false
   accountingStructure.value = emptyStructure()
   drawerOpen.value = false
   await startNewSession()
@@ -1659,6 +1780,18 @@ async function resetChat() {
 .form-step-nav strong { font-size: 12px; }
 .form-step-nav span { margin-top: 3px; font-size: 11px; color: var(--slate-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-step-nav button.active span { color: var(--blue-600); }
+.confirmation-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.confirmation-summary-card { border: 1px solid var(--slate-200); border-radius: var(--radius-sm); padding: 10px 11px; background: #fff; }
+.confirmation-summary-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.confirmation-summary-card strong { color: var(--slate-800); font-size: 12px; }
+.confirmation-summary-card span { padding: 2px 6px; border-radius: 999px; background: var(--slate-100); color: var(--slate-500); font-size: 9px; white-space: nowrap; }
+.confirmation-summary-card span.covered { color: var(--green-700); background: var(--green-50); }
+.confirmation-summary-card span.partial, .confirmation-summary-card span.unknown_confirmed { color: #8a6420; background: #fff5cc; }
+.confirmation-summary-card p { margin: 7px 0 0; color: var(--slate-600); font-size: 11px; line-height: 1.55; }
+.confirmation-gap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 3px 0 10px; padding-top: 12px; border-top: 1px solid var(--slate-100); }
+.confirmation-gap-head > div { display: flex; flex-direction: column; gap: 2px; }
+.confirmation-gap-head strong { color: var(--slate-800); font-size: 12px; }
+.confirmation-gap-head span { color: var(--slate-400); font-size: 10px; }
 .form-subgroups { display: flex; flex-direction: column; gap: 12px; }
 .form-subgroup {
   padding: 11px;
@@ -2213,6 +2346,8 @@ async function resetChat() {
     min-height: 100vh;
     border: none;
   }
+
+  .confirmation-summary-grid { grid-template-columns: 1fr; }
 
   .drawer-mask {
     display: block;

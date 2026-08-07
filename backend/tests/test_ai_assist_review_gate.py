@@ -64,3 +64,23 @@ def test_confirm_endpoint_enforces_pending_ai_review_before_running_rules():
 def test_assist_endpoints_do_not_execute_rule_engine():
     assert "run_diagnosis" not in inspect.getsource(router_mod.chat)
     assert "run_diagnosis" not in inspect.getsource(router_mod.get_field_help)
+
+
+def test_guided_intake_endpoints_do_not_execute_rule_engine():
+    for endpoint in (
+        router_mod._assess_guided_session,
+        router_mod.submit_guided_intake,
+        router_mod.reply_guided_intake,
+        router_mod.supplement_guided_intake,
+    ):
+        assert "run_diagnosis" not in inspect.getsource(endpoint)
+
+
+def test_guided_follow_up_has_hard_round_limit_and_confirm_gate():
+    reply_source = inspect.getsource(router_mod.reply_guided_intake)
+    assert "MAX_FOLLOW_UP_ROUNDS" in reply_source
+    assert "集中追问已结束" in reply_source
+
+    confirm_source = inspect.getsource(router_mod.confirm_and_diagnose)
+    assert "coverage.get(\"readiness\") != \"ready\"" in confirm_source
+    assert confirm_source.index("coverage.get(\"readiness\")") < confirm_source.index("run_diagnosis(")

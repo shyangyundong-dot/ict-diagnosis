@@ -41,6 +41,27 @@
           <span>规则版本 <code>{{ data.rule_version }}</code></span>
         </div>
 
+        <section v-if="hasGuidedSnapshot" class="section">
+          <h2 class="section-title">六块引导式项目说明</h2>
+          <p class="section-hint">保留用户提交的原文、AI 整理摘要和提交时覆盖状态，便于复核事实来源。</p>
+          <div class="guided-trace-grid">
+            <article v-for="(item, key) in data.guided_input.sections" :key="key" class="guided-trace-card">
+              <div class="guided-trace-head">
+                <strong>{{ data.guided_section_definitions?.[key]?.title || key }}</strong>
+                <span :class="data.coverage?.sections?.[key]?.status || 'missing'">
+                  {{ coverageStatusLabel(data.coverage?.sections?.[key]?.status) }}
+                </span>
+              </div>
+              <div class="trace-block-label">用户原文</div>
+              <p class="trace-original">{{ item.text || (item.explicit_unknown ? '暂不清楚' : '未填写') }}</p>
+              <template v-if="data.coverage?.sections?.[key]?.summary">
+                <div class="trace-block-label">AI 整理摘要</div>
+                <p class="trace-summary">{{ data.coverage.sections[key].summary }}</p>
+              </template>
+            </article>
+          </div>
+        </section>
+
         <section class="section">
           <h2 class="section-title">确认的结构化字段</h2>
           <p class="section-hint">与提交诊断时右侧「项目事实表」中确认的值一致；同时保留填写来源，便于复核。</p>
@@ -122,6 +143,16 @@ const idInput = ref('')
 const loading = ref(false)
 const error = ref('')
 const data = ref(null)
+
+const hasGuidedSnapshot = computed(() => Object.values(data.value?.guided_input?.sections || {})
+  .some((item) => item?.text || item?.explicit_unknown))
+
+function coverageStatusLabel(status) {
+  return ({
+    covered: '已覆盖', partial: '部分覆盖', missing: '缺失',
+    not_applicable: '不适用', unknown_confirmed: '已明确未知',
+  })[status] || '未记录'
+}
 
 function fieldSource(key) {
   const entry = data.value?.field_review?.fields?.[key]
@@ -304,6 +335,57 @@ watch(
   color: var(--slate-400);
 }
 
+.guided-trace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.guided-trace-card {
+  padding: 0.9rem;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.guided-trace-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+.guided-trace-head strong { color: var(--slate-800); font-size: 0.92rem; }
+.guided-trace-head span {
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: var(--slate-100);
+  color: var(--slate-500);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.guided-trace-head span.covered { color: var(--green-700); background: var(--green-50); }
+.guided-trace-head span.partial,
+.guided-trace-head span.unknown_confirmed { color: #816b35; background: #fff5cc; }
+.trace-block-label {
+  margin-top: 0.65rem;
+  color: var(--slate-400);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.trace-original,
+.trace-summary {
+  margin: 0.25rem 0 0;
+  color: var(--slate-700);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.trace-summary {
+  color: var(--slate-600);
+  background: var(--blue-50);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem;
+}
+
 .empty-block {
   padding: 1rem;
   background: var(--slate-50);
@@ -427,6 +509,10 @@ watch(
 
 .footer-actions {
   padding-top: 0.5rem;
+}
+
+@media (max-width: 680px) {
+  .guided-trace-grid { grid-template-columns: 1fr; }
 }
 
 .report-link {
